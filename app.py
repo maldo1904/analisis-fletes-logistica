@@ -31,7 +31,6 @@ def procesar_archivo(file):
 
     if file.name.endswith('.xlsx'):
         excel_file = pd.ExcelFile(file)
-        # Solo considera las hojas que correspondan a los meses y que REALMENTE existan en el archivo
         for nombre_hoja in NOMBRES_MESES:
             if nombre_hoja in excel_file.sheet_names:
                 df_temp = pd.read_excel(excel_file, sheet_name=nombre_hoja, header=0)
@@ -108,10 +107,6 @@ if archivo_subido is not None:
         # BARRA LATERAL: FILTROS DE ANÁLISIS
         st.sidebar.header("🔍 Filtros Operativos")
 
-        col_embarque = 'TIPO DE EMBARQUE'
-        opciones_embarque = ["Todos"] + sorted([str(x) for x in df_raw[col_embarque].dropna().unique()]) if col_embarque in df_raw.columns else ["Todos"]
-        embarque_sel = st.sidebar.selectbox("Tipo de Embarque (TR1, TR2, etc.)", opciones_embarque)
-
         col_cliente = 'CLIENTE'
         opciones_cliente = sorted([str(x) for x in df_raw[col_cliente].dropna().unique()]) if col_cliente in df_raw.columns else []
         clientes_sel = st.sidebar.multiselect("Cliente(s)", opciones_cliente, default=[])
@@ -121,19 +116,35 @@ if archivo_subido is not None:
         transp_sel = st.sidebar.multiselect("Transportista(s)", opciones_transp, default=[])
 
         col_tipo_trans = 'TIPO DE TRANSPORTE'
-        opciones_tipo_trans = ["Todos"] + sorted([str(x) for x in df_raw[col_tipo_trans].dropna().unique()]) if col_tipo_trans in df_raw.columns else ["Todos"]
-        tipo_trans_sel = st.sidebar.selectbox("Tipo de Transporte", opciones_tipo_trans)
+        opciones_tipo_trans = sorted([str(x) for x in df_raw[col_tipo_trans].dropna().unique()]) if col_tipo_trans in df_raw.columns else []
+        tipo_trans_sel = st.sidebar.multiselect("Tipo de Transporte", opciones_tipo_trans, default=[])
 
-        # Aplicar filtros
+        col_embarque = 'TIPO DE EMBARQUE'
+        opciones_embarque = sorted([str(x) for x in df_raw[col_embarque].dropna().unique()]) if col_embarque in df_raw.columns else []
+        embarque_sel = st.sidebar.multiselect("Tipo de Embarque", opciones_embarque, default=[])
+
+        col_origen = 'ORIGEN DE VIAJE'
+        opciones_origen = sorted([str(x) for x in df_raw[col_origen].dropna().unique()]) if col_origen in df_raw.columns else []
+        origen_sel = st.sidebar.multiselect("Origen", opciones_origen, default=[])
+
+        col_destino = 'DESTINO DE EMBARQUE'
+        opciones_destino = sorted([str(x) for x in df_raw[col_destino].dropna().unique()]) if col_destino in df_raw.columns else []
+        destino_sel = st.sidebar.multiselect("Destino", opciones_destino, default=[])
+
+        # Aplicar filtros operativos múltiples
         df = df_raw.copy()
-        if embarque_sel != "Todos" and col_embarque in df.columns:
-            df = df[df[col_embarque].astype(str) == embarque_sel]
         if clientes_sel and col_cliente in df.columns:
             df = df[df[col_cliente].astype(str).isin(clientes_sel)]
         if transp_sel and col_transp in df.columns:
             df = df[df[col_transp].astype(str).isin(transp_sel)]
-        if tipo_trans_sel != "Todos" and col_tipo_trans in df.columns:
-            df = df[df[col_tipo_trans].astype(str) == tipo_trans_sel]
+        if tipo_trans_sel and col_tipo_trans in df.columns:
+            df = df[df[col_tipo_trans].astype(str).isin(tipo_trans_sel)]
+        if embarque_sel and col_embarque in df.columns:
+            df = df[df[col_embarque].astype(str).isin(embarque_sel)]
+        if origen_sel and col_origen in df.columns:
+            df = df[df[col_origen].astype(str).isin(origen_sel)]
+        if destino_sel and col_destino in df.columns:
+            df = df[df[col_destino].astype(str).isin(destino_sel)]
 
         # SELECCIÓN DE PERIODO
         st.sidebar.markdown("---")
@@ -146,7 +157,6 @@ if archivo_subido is not None:
             label_a, label_b = "Semana A (Base)", "Semana B (Actual)"
         else:
             col_periodo = 'MES FACTURA'
-            # CORRECCIÓN AQUÍ: Forzamos el orden basándonos estrictamente en NOMBRES_MESES 
             meses_existentes = df[col_periodo].dropna().unique()
             periodos = [m for m in NOMBRES_MESES if m in meses_existentes]
             label_a, label_b = "Mes A (Base)", "Mes B (Actual)"
@@ -165,40 +175,33 @@ if archivo_subido is not None:
             with tab1:
                 st.subheader(f"📊 Comparativa Real: {modo_periodo} {per_a} vs {modo_periodo} {per_b}")
 
-                # Conteo Correcto de Viajes Únicos
                 df_a_principales = df_a[df_a['ES_CUENTA_VIAJE'] == True]
                 df_b_principales = df_b[df_b['ES_CUENTA_VIAJE'] == True]
 
                 viajes_a = df_a_principales['ID_VIAJE_UNICO'].dropna().nunique()
                 viajes_b = df_b_principales['ID_VIAJE_UNICO'].dropna().nunique()
 
-                # Gasto de la Operación Total
                 tot_a = df_a['TOTAL FLETE'].sum() if 'TOTAL FLETE' in df_a.columns else 0
                 tot_b = df_b['TOTAL FLETE'].sum() if 'TOTAL FLETE' in df_b.columns else 0
 
-                # Flete Puro para análisis de costos unitarios logísticos
                 flete_puro_a = df_a['FLETE FACTURA'].sum() if 'FLETE FACTURA' in df_a.columns else 0
                 flete_puro_b = df_b['FLETE FACTURA'].sum() if 'FLETE FACTURA' in df_b.columns else 0
 
-                # Costo Medio por Viaje
                 media_viaje_a = (flete_puro_a / viajes_a) if viajes_a > 0 else 0
                 media_viaje_b = (flete_puro_b / viajes_b) if viajes_b > 0 else 0
 
-                # Sumatorias de Volumen
                 kg_a = df_a['KG MOVIDOS'].sum() if 'KG MOVIDOS' in df_a.columns else 0
                 kg_b = df_b['KG MOVIDOS'].sum() if 'KG MOVIDOS' in df_b.columns else 0
 
                 tar_a = df_a['TARIMAS TOTALES POR VIAJE'].sum() if 'TARIMAS TOTALES POR VIAJE' in df_a.columns else 0
                 tar_b = df_b['TARIMAS TOTALES POR VIAJE'].sum() if 'TARIMAS TOTALES POR VIAJE' in df_b.columns else 0
 
-                # Indicadores Unitarios usando el Flete sin cargos adicionales
                 costo_kg_a = (flete_puro_a / kg_a) if kg_a > 0 else 0
                 costo_kg_b = (flete_puro_b / kg_b) if kg_b > 0 else 0
 
                 costo_tar_a = (flete_puro_a / tar_a) if tar_a > 0 else 0
                 costo_tar_b = (flete_puro_b / tar_b) if tar_b > 0 else 0
 
-                # Variaciones
                 var_viajes = viajes_b - viajes_a
                 var_costo = ((media_viaje_b - media_viaje_a) / media_viaje_a * 100) if media_viaje_a > 0 else 0
                 var_kg = ((kg_b - kg_a) / kg_a * 100) if kg_a > 0 else 0
@@ -208,7 +211,6 @@ if archivo_subido is not None:
 
                 st.markdown("### 📐 Resumen de Indicadores Clave (Basados en Flete Base)")
                 
-                # KPIs principales
                 m_col1, m_col2, m_col3, m_col4 = st.columns(4)
                 with m_col1:
                     render_kpi(
@@ -261,6 +263,7 @@ if archivo_subido is not None:
 
                 conceptos = ['FLETE FACTURA', 'MANIOBRAS', 'REPARTOS', 'DEMORAS Y ESTADIAS', 'OTROS', 'TOTAL FLETE']
                 filas = []
+
                 for conc in conceptos:
                     m_a = df_a[conc].sum() if conc in df_a.columns else 0
                     m_b = df_b[conc].sum() if conc in df_b.columns else 0
@@ -274,7 +277,48 @@ if archivo_subido is not None:
                         'Diferencia ($)': f"${dif:,.2f}",
                         'Variación (%)': f"{pct:+.1f}%"
                     })
+
                 st.table(pd.DataFrame(filas))
+
+                # --- MEJORA: SECCIÓN CON FILTRO PROPIO Y GRÁFICO DE LÍNEAS ---
+                st.markdown("---")
+                st.markdown("### 📈 Análisis de Tendencia Avanzado")
+                
+                # Mapeo de opciones amigables a sus variables reales correspondientes
+                dicc_metricas = {
+                    "KG Movidos": kg_a, "Tarimas": tar_a,
+                    "Flete Factura ($)": flete_puro_a, "Maniobras ($)": df_a['MANIOBRAS'].sum() if 'MANIOBRAS' in df_a.columns else 0,
+                    "Repartos ($)": df_a['REPARTOS'].sum() if 'REPARTOS' in df_a.columns else 0,
+                    "Demoras y Estadías ($)": df_a['DEMORAS Y ESTADIAS'].sum() if 'DEMORAS Y ESTADIAS' in df_a.columns else 0,
+                    "Otros ($)": df_a['OTROS'].sum() if 'OTROS' in df_a.columns else 0,
+                    "Total Flete ($)": tot_a, "Costo por KG ($)": costo_kg_a, "Costo por Tarima ($)": costo_tar_a
+                }
+                
+                dicc_metricas_b = {
+                    "KG Movidos": kg_b, "Tarimas": tar_b,
+                    "Flete Factura ($)": flete_puro_b, "Maniobras ($)": df_b['MANIOBRAS'].sum() if 'MANIOBRAS' in df_b.columns else 0,
+                    "Repartos ($)": df_b['REPARTOS'].sum() if 'REPARTOS' in df_b.columns else 0,
+                    "Demoras y Estadías ($)": df_b['DEMORAS Y ESTADIAS'].sum() if 'DEMORAS Y ESTADIAS' in df_b.columns else 0,
+                    "Otros ($)": df_b['OTROS'].sum() if 'OTROS' in df_b.columns else 0,
+                    "Total Flete ($)": tot_b, "Costo por KG ($)": costo_kg_b, "Costo por Tarima ($)": costo_tar_b
+                }
+
+                # Componente de filtro interno para el gráfico
+                metrica_seleccionada = st.selectbox(
+                    "🔍 Selecciona la métrica específica que deseas graficar:",
+                    list(dicc_metricas.keys())
+                )
+
+                # Construcción del dataset de la tendencia de líneas
+                datos_tendencia = {
+                    'Periodo de Análisis': [f"{modo_periodo} {per_a}", f"{modo_periodo} {per_b}"],
+                    metrica_seleccionada: [dicc_metricas[metrica_seleccionada], dicc_metricas_b[metrica_seleccionada]]
+                }
+                df_tendencia = pd.DataFrame(datos_tendencia).set_index('Periodo de Análisis')
+
+                # Renderizar gráfico interactivo de líneas nativo de Streamlit
+                st.line_chart(df_tendencia, use_container_width=True)
+                # -------------------------------------------------------------
 
             # TAB 2: AUDITORÍA AGRUPADA POR VIAJE
             with tab2:
@@ -282,15 +326,27 @@ if archivo_subido is not None:
                 df_b_validos['ID_VIAJE_UNICO'] = df_b_validos['ID_VIAJE_UNICO'].astype(int)
                 
                 df_b_grouped = df_b_validos.groupby('ID_VIAJE_UNICO').agg({
-                    'EMBARQUE': 'first',
                     'CLIENTE': 'first',
                     'TRANSPORTISTA': 'first',
-                    'KG MOVIDOS': 'sum',
+                    'ORIGEN DE VIAJE': 'first',
+                    'DESTINO DE EMBARQUE': 'first',
                     'TARIMAS TOTALES POR VIAJE': 'sum',
+                    'TIPO DE TRANSPORTE': 'first',
+                    'KG MOVIDOS': 'sum',
                     'FLETE FACTURA': 'sum',
+                    'MANIOBRAS': 'sum',
+                    'REPARTOS': 'sum',
                     'DEMORAS Y ESTADIAS': 'sum',
+                    'OTROS': 'sum',
                     'TOTAL FLETE': 'sum'
                 }).reset_index()
+
+                df_b_grouped = df_b_grouped.rename(columns={
+                    'ORIGEN DE VIAJE': 'Origen',
+                    'DESTINO DE EMBARQUE': 'Destino',
+                    'TARIMAS TOTALES POR VIAJE': 'Tarimas',
+                    'TIPO DE TRANSPORTE': 'Unidad'
+                })
 
                 media_ref = media_viaje_a
                 viajes_altos = df_b_grouped[df_b_grouped['FLETE FACTURA'] > media_ref].copy()
@@ -299,8 +355,15 @@ if archivo_subido is not None:
                     viajes_altos['Diferencia vs Media Base'] = viajes_altos['FLETE FACTURA'] - media_ref
                     viajes_altos = viajes_altos.sort_values(by='FLETE FACTURA', ascending=False)
 
-                    st.warning(f"🚨 Auditoría: **{len(viajes_altos)} embarques/viajes únicos** en el {modo_periodo} {per_b} superan la tarifa flete base promedio del {modo_periodo} {per_a} (${media_ref:,.2f})")
-                    st.dataframe(viajes_altos, use_container_width=True)
+                    cols_dinero = ['FLETE FACTURA', 'MANIOBRAS', 'REPARTOS', 'DEMORAS Y ESTADIAS', 'OTROS', 'TOTAL FLETE', 'Diferencia vs Media Base']
+                    df_visualizacion = viajes_altos.copy()
+                    
+                    for col in cols_dinero:
+                        if col in df_visualizacion.columns:
+                            df_visualizacion[col] = df_visualizacion[col].apply(lambda x: f"${x:,.2f}")
+
+                    st.warning(f"🚨 Auditoría: **{len(viajes_altos)} viajes únicos** en el {modo_periodo} {per_b} superan la tarifa flete base promedio del {modo_periodo} {per_a} (${media_ref:,.2f})")
+                    st.dataframe(df_visualizacion, use_container_width=True, hide_index=True)
                 else:
                     st.success(f"✅ No se encontraron fletes en el {modo_periodo} {per_b} que superen la media del {modo_periodo} {per_a}.")
 
@@ -315,7 +378,7 @@ DATOS COMPARATIVOS ({modo_periodo.upper()} {per_a} vs {modo_periodo.upper()} {pe
 - Periodo Base ({modo_periodo} {per_a}): Viajes Reales: {viajes_a} | KG Movidos: {kg_a:,.0f} | Tarimas: {tar_a:,.0f} | Costo Puro/KG: ${costo_kg_a:,.2f} | Costo Puro/Tarima: ${costo_tar_a:,.2f} | Tarifa Media/Viaje: ${media_viaje_a:,.2f} | Gasto Operación Total: ${tot_a:,.2f}
 - Periodo Actual ({modo_periodo} {per_b}): Viajes Reales: {viajes_b} | KG Movidos: {kg_b:,.0f} | Tarimas: {tar_b:,.0f} | Costo Puro/KG: ${costo_kg_b:,.2f} | Costo Puro/Tarima: ${costo_tar_b:,.2f} | Tarifa Media/Viaje: ${media_viaje_b:,.2f} | Gasto Operación Total: ${tot_b:,.2f}
 - Variación del Gasto Total de la Operación: {var_tot:+.2f}%
-- Filtros Operativos -> Embarque: {embarque_sel} | Cliente: {clientes_sel if clientes_sel else 'Todos'} | Transportista: {transp_sel if transp_sel else 'Todos'}
+- Filtros Operativos -> Cliente: {clientes_sel if clientes_sel else 'Todos'} | Transportista: {transp_sel if transp_sel else 'Todos'} | Tipo de Transporte: {tipo_trans_sel if tipo_trans_sel else 'Todos'} | Tipo de Embarque: {embarque_sel if embarque_sel else 'Todos'} | Origen: {origen_sel if origen_sel else 'Todos'} | Destino: {destino_sel if destino_sel else 'Todos'}
 
 ESTRUCTURA DEL REPORTE SOLICITADA:
 1. 📌 Resumen Ejecutivo
