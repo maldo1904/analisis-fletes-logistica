@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """LogiSense AI.ipynb
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -183,6 +182,9 @@ if archivo_subido is not None:
                 tot_a = df_a['TOTAL FLETE'].sum() if 'TOTAL FLETE' in df_a.columns else 0
                 tot_b = df_b['TOTAL FLETE'].sum() if 'TOTAL FLETE' in df_b.columns else 0
 
+                fact_a = df_a['IMPORTE FACTURADO SIN IVA'].sum() if 'IMPORTE FACTURADO SIN IVA' in df_a.columns else 0
+                fact_b = df_b['IMPORTE FACTURADO SIN IVA'].sum() if 'IMPORTE FACTURADO SIN IVA' in df_b.columns else 0
+
                 flete_puro_a = df_a['FLETE FACTURA'].sum() if 'FLETE FACTURA' in df_a.columns else 0
                 flete_puro_b = df_b['FLETE FACTURA'].sum() if 'FLETE FACTURA' in df_b.columns else 0
 
@@ -202,6 +204,7 @@ if archivo_subido is not None:
                 costo_tar_b = (flete_puro_b / tar_b) if tar_b > 0 else 0
 
                 var_viajes = viajes_b - viajes_a
+                var_fact = ((fact_b - fact_a) / fact_a * 100) if fact_a > 0 else 0
                 var_costo = ((media_viaje_b - media_viaje_a) / media_viaje_a * 100) if media_viaje_a > 0 else 0
                 var_kg = ((kg_b - kg_a) / kg_a * 100) if kg_a > 0 else 0
                 var_tar = ((tar_b - tar_a) / tar_a * 100) if tar_a > 0 else 0
@@ -210,46 +213,56 @@ if archivo_subido is not None:
 
                 st.markdown("### 📐 Resumen de Indicadores Clave")
                 
+                # Primera fila de KPIs (con Facturación)
                 m_col1, m_col2, m_col3, m_col4 = st.columns(4)
                 with m_col1:
+                    render_kpi(
+                        f"Facturación Venta ({modo_periodo} {per_a} ➜ {per_b})",
+                        f"${fact_a:,.2f}", f"${fact_b:,.2f}",
+                        f"{var_fact:+.1f}%",
+                        is_positive_good=True, val_num=var_fact
+                    )
+                with m_col2:
                     render_kpi(
                         f"Total Viajes Reales ({modo_periodo} {per_a} ➜ {per_b})",
                         f"{viajes_a}", f"{viajes_b}",
                         f"{var_viajes:+} viajes",
                         is_positive_good=True, val_num=var_viajes
                     )
-                with m_col2:
+                with m_col3:
                     render_kpi(
                         f"Tarifa Media / Viaje ({modo_periodo} {per_a} ➜ {per_b})",
                         f"${media_viaje_a:,.2f}", f"${media_viaje_b:,.2f}",
                         f"{var_costo:+.1f}%",
                         is_positive_good=False, val_num=var_costo
                     )
-                with m_col3:
+                with m_col4:
                     render_kpi(
                         f"KG Movidos ({modo_periodo} {per_a} ➜ {per_b})",
                         f"{kg_a:,.0f} kg", f"{kg_b:,.0f} kg",
                         f"{var_kg:+.1f}%",
                         is_positive_good=True, val_num=var_kg
                     )
-                with m_col4:
+
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                # Segunda fila de KPIs
+                m_col5, m_col6, m_col7 = st.columns(3)
+                with m_col5:
                     render_kpi(
                         f"Tarimas Totales ({modo_periodo} {per_a} ➜ {per_b})",
                         f"{tar_a:,.0f}", f"{tar_b:,.0f}",
                         f"{var_tar:+.1f}%",
                         is_positive_good=True, val_num=var_tar
                     )
-
-                st.markdown("<br>", unsafe_allow_html=True)
-                m_col5, m_col6 = st.columns(2)
-                with m_col5:
+                with m_col6:
                     render_kpi(
                         f"Costo por Kilogramo ({modo_periodo} {per_a} ➜ {per_b})",
                         f"${costo_kg_a:,.2f}", f"${costo_kg_b:,.2f}",
                         f"{var_costo_kg:+.1f}%",
                         is_positive_good=False, val_num=var_costo_kg
                     )
-                with m_col6:
+                with m_col7:
                     render_kpi(
                         f"Costo por Tarima ({modo_periodo} {per_a} ➜ {per_b})",
                         f"${costo_tar_a:,.2f}", f"${costo_tar_b:,.2f}",
@@ -262,12 +275,13 @@ if archivo_subido is not None:
                 st.markdown("### 📈 Tendencia Histórica de Métricas")
 
                 dict_metricas = {
-                    "Flete Factura": "FLETE FACTURA",
+                    "Facturación (Ventas)": "IMPORTE FACTURADO SIN IVA",
+                    "Total Flete (Costo)": "TOTAL FLETE",
+                    "Flete Base": "FLETE FACTURA",
                     "Maniobras": "MANIOBRAS",
                     "Repartos": "REPARTOS",
                     "Demoras y Estadías": "DEMORAS Y ESTADIAS",
                     "Otros Gastos": "OTROS",
-                    "Total Flete": "TOTAL FLETE",
                     "KG Movidos": "KG MOVIDOS",
                     "Tarimas Totales": "TARIMAS TOTALES POR VIAJE",
                     "Costo por KG": "COSTO_KG",
@@ -277,22 +291,24 @@ if archivo_subido is not None:
                 metricas_seleccionadas = st.multiselect(
                     "Selecciona las métricas para graficar:",
                     options=list(dict_metricas.keys()),
-                    default=["Flete Factura", "Total Flete"]
+                    default=["Facturación (Ventas)", "Total Flete (Costo)"]
                 )
 
                 df_trend = df.copy()
                 if modo_periodo == "Mes":
                     df_trend['PERIODO_ORDEN'] = pd.Categorical(df_trend['MES FACTURA'], categories=NOMBRES_MESES, ordered=True)
                     df_grouped = df_trend.groupby('PERIODO_ORDEN', observed=True).agg({
-                        'FLETE FACTURA': 'sum', 'MANIOBRAS': 'sum', 'REPARTOS': 'sum',
-                        'DEMORAS Y ESTADIAS': 'sum', 'OTROS': 'sum', 'TOTAL FLETE': 'sum',
-                        'KG MOVIDOS': 'sum', 'TARIMAS TOTALES POR VIAJE': 'sum'
+                        'IMPORTE FACTURADO SIN IVA': 'sum', 'FLETE FACTURA': 'sum', 
+                        'MANIOBRAS': 'sum', 'REPARTOS': 'sum', 'DEMORAS Y ESTADIAS': 'sum', 
+                        'OTROS': 'sum', 'TOTAL FLETE': 'sum', 'KG MOVIDOS': 'sum', 
+                        'TARIMAS TOTALES POR VIAJE': 'sum'
                     }).reset_index().rename(columns={'PERIODO_ORDEN': 'Periodo'})
                 else:
                     df_grouped = df_trend.groupby('SEMANA_ANALISIS').agg({
-                        'FLETE FACTURA': 'sum', 'MANIOBRAS': 'sum', 'REPARTOS': 'sum',
-                        'DEMORAS Y ESTADIAS': 'sum', 'OTROS': 'sum', 'TOTAL FLETE': 'sum',
-                        'KG MOVIDOS': 'sum', 'TARIMAS TOTALES POR VIAJE': 'sum'
+                        'IMPORTE FACTURADO SIN IVA': 'sum', 'FLETE FACTURA': 'sum', 
+                        'MANIOBRAS': 'sum', 'REPARTOS': 'sum', 'DEMORAS Y ESTADIAS': 'sum', 
+                        'OTROS': 'sum', 'TOTAL FLETE': 'sum', 'KG MOVIDOS': 'sum', 
+                        'TARIMAS TOTALES POR VIAJE': 'sum'
                     }).reset_index().rename(columns={'SEMANA_ANALISIS': 'Periodo'})
 
                 df_grouped['COSTO_KG'] = np.where(df_grouped['KG MOVIDOS'] > 0, df_grouped['FLETE FACTURA'] / df_grouped['KG MOVIDOS'], 0)
@@ -303,7 +319,7 @@ if archivo_subido is not None:
                     fig_lineas = px.line(
                         df_grouped, x='Periodo', y=cols_y, markers=True,
                         title=f"Evolución por {modo_periodo}",
-                        labels={'value': 'Monto / Cantidad', 'variable': 'Métrica'}
+                        labels={'value': 'Monto ($) / Cantidad', 'variable': 'Métrica'}
                     )
                     fig_lineas.update_layout(hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                     st.plotly_chart(fig_lineas, use_container_width=True)
@@ -343,6 +359,7 @@ if archivo_subido is not None:
                     'TARIMAS TOTALES POR VIAJE': 'sum',
                     'TIPO DE TRANSPORTE': 'first',
                     'KG MOVIDOS': 'sum',
+                    'IMPORTE FACTURADO SIN IVA': 'sum',
                     'FLETE FACTURA': 'sum',
                     'MANIOBRAS': 'sum',
                     'REPARTOS': 'sum',
@@ -355,7 +372,8 @@ if archivo_subido is not None:
                     'ORIGEN DE VIAJE': 'Origen',
                     'DESTINO DE EMBARQUE': 'Destino',
                     'TARIMAS TOTALES POR VIAJE': 'Tarimas',
-                    'TIPO DE TRANSPORTE': 'Unidad'
+                    'TIPO DE TRANSPORTE': 'Unidad',
+                    'IMPORTE FACTURADO SIN IVA': 'Facturación'
                 })
 
                 media_ref = media_viaje_a
@@ -365,7 +383,7 @@ if archivo_subido is not None:
                     viajes_altos['Diferencia vs Media Base'] = viajes_altos['FLETE FACTURA'] - media_ref
                     viajes_altos = viajes_altos.sort_values(by='FLETE FACTURA', ascending=False)
 
-                    cols_dinero = ['FLETE FACTURA', 'MANIOBRAS', 'REPARTOS', 'DEMORAS Y ESTADIAS', 'OTROS', 'TOTAL FLETE', 'Diferencia vs Media Base']
+                    cols_dinero = ['Facturación', 'FLETE FACTURA', 'MANIOBRAS', 'REPARTOS', 'DEMORAS Y ESTADIAS', 'OTROS', 'TOTAL FLETE', 'Diferencia vs Media Base']
                     df_visualizacion = viajes_altos.copy()
                     
                     for col in cols_dinero:
@@ -382,17 +400,18 @@ if archivo_subido is not None:
                 var_tot = ((tot_b - tot_a) / tot_a * 100) if tot_a > 0 else 0
 
                 prompt_texto = f"""Actúa como un Gerente Senior de Logística y Cadena de Suministro.
-Analiza la siguiente variación de fletes e imprevistos financieros y genera un reporte ejecutivo.
+Analiza la siguiente variación de fletes, ventas e imprevistos financieros y genera un reporte ejecutivo.
 
 DATOS COMPARATIVOS ({modo_periodo.upper()} {per_a} vs {modo_periodo.upper()} {per_b}):
-- Periodo Base ({modo_periodo} {per_a}): Viajes Reales: {viajes_a} | KG Movidos: {kg_a:,.0f} | Tarimas: {tar_a:,.0f} | Costo Puro/KG: ${costo_kg_a:,.2f} | Costo Puro/Tarima: ${costo_tar_a:,.2f} | Tarifa Media/Viaje: ${media_viaje_a:,.2f} | Gasto Operación Total: ${tot_a:,.2f}
-- Periodo Actual ({modo_periodo} {per_b}): Viajes Reales: {viajes_b} | KG Movidos: {kg_b:,.0f} | Tarimas: {tar_b:,.0f} | Costo Puro/KG: ${costo_kg_b:,.2f} | Costo Puro/Tarima: ${costo_tar_b:,.2f} | Tarifa Media/Viaje: ${media_viaje_b:,.2f} | Gasto Operación Total: ${tot_b:,.2f}
+- Periodo Base ({modo_periodo} {per_a}): Facturación Venta: ${fact_a:,.2f} | Viajes Reales: {viajes_a} | KG Movidos: {kg_a:,.0f} | Tarimas: {tar_a:,.0f} | Costo Puro/KG: ${costo_kg_a:,.2f} | Costo Puro/Tarima: ${costo_tar_a:,.2f} | Tarifa Media/Viaje: ${media_viaje_a:,.2f} | Gasto Operación Total: ${tot_a:,.2f}
+- Periodo Actual ({modo_periodo} {per_b}): Facturación Venta: ${fact_b:,.2f} | Viajes Reales: {viajes_b} | KG Movidos: {kg_b:,.0f} | Tarimas: {tar_b:,.0f} | Costo Puro/KG: ${costo_kg_b:,.2f} | Costo Puro/Tarima: ${costo_tar_b:,.2f} | Tarifa Media/Viaje: ${media_viaje_b:,.2f} | Gasto Operación Total: ${tot_b:,.2f}
+- Variación en Facturación de Ventas: {var_fact:+.2f}%
 - Variación del Gasto Total de la Operación: {var_tot:+.2f}%
 - Filtros Operativos -> Cliente: {clientes_sel if clientes_sel else 'Todos'} | Transportista: {transp_sel if transp_sel else 'Todos'} | Tipo de Transporte: {tipo_trans_sel if tipo_trans_sel else 'Todos'} | Tipo de Embarque: {embarque_sel if embarque_sel else 'Todos'} | Origen: {origen_sel if origen_sel else 'Todos'} | Destino: {destino_sel if destino_sel else 'Todos'}
 
 ESTRUCTURA DEL REPORTE SOLICITADA:
 1. 📌 Resumen Ejecutivo
-2. 🚨 Alertas Operativas (Desviación en Tarifa Base por Viaje, Costo por KG, Tarimas y Volumen de Carga)
+2. 🚨 Alertas Operativas (Relación Ventas vs Costos de Fletes, Desviación en Tarifa Base por Viaje, Costo por KG y Tarimas)
 3. 💡 Recomendaciones para Negociación de Tarifas y Eficiencia en Costos Variables"""
 
                 st.code(prompt_texto, language="markdown")
