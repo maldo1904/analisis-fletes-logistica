@@ -194,23 +194,12 @@ def to_excel_bytes(dfs: dict):
 
 # ---------- APP ----------
 st.title("🚚 LogiSense AI — Analítica Logística Avanzada")
-st.caption("v2.1 • Refactorizado • Detección por ruta • Calidad de datos • Exportable")
+st.caption("v2.1 • Refactorizado • Auditoría de anomalías • Exportable")
 
 archivo_subido = st.file_uploader("📁 Carga tu archivo de datos (Excel .xlsx o CSV)", type=["xlsx","csv"])
 
 if archivo_subido is None:
     st.info("👆 Por favor sube tu archivo Excel o CSV para comenzar el análisis.")
-    st.markdown("""
-    **Novedades v2.1:**
-    - ✅ Fix crítico `ID_VIAJE_UNICO` (alineación de índices)
-    - ✅ Cache por bytes (no reprocesa al mover filtros)
-    - ✅ Validación de schema + Tab de Calidad de Datos
-    - ✅ `fillna(0)` eliminado — nulos visibles y trazables
-    - ✅ Anomalías por **Ruta (Origen-Destino)** con IQR / Z-Score
-    - ✅ Exportación a Excel con un clic
-    - ✅ Fechas normalizadas y `date_input` robusto
-    - ✅ Sanitización HTML y footer no invasivo
-    """)
     st.stop()
 
 # Procesamiento con cache
@@ -221,8 +210,6 @@ if df_raw.empty:
     st.error(f"❌ No se pudo procesar el archivo: {meta.get('error','Archivo vacío o sin INDICE VIAJES válidos')}")
     st.stop()
 
-# Mensajes de calidad inicial
-msg_cols = st.columns(3)
 if 'warning' in meta:
     st.warning(f"⚠️ {meta['warning']}")
 else:
@@ -351,42 +338,7 @@ var_costo_kg = _var_pct(costo_kg_b,costo_kg_a)
 var_costo_tar = _var_pct(costo_tar_b,costo_tar_a)
 
 # ---------- TABS ----------
-tab0, tab1, tab2, tab3 = st.tabs(["🔍 Calidad de Datos","📊 Comparativo Financiero y Gráficos","🚨 Auditoría de Anomalías","📝 Prompt para IA Executive"])
-
-with tab0:
-    st.subheader("🔍 Auditoría de Calidad de Datos")
-    c1,c2,c3,c4 = st.columns(4)
-    c1.metric("Registros cargados (post-filtro índice)", f"{len(df_raw):,}")
-    c2.metric("Registros tras filtros operativos", f"{len(df):,}")
-    c3.metric("Viajes únicos totales", f"{df['ID_VIAJE_UNICO'].nunique():,}")
-    c4.metric("Rango fechas", f"{df['FECHA_FACTURA_DT'].min().date() if df['FECHA_FACTURA_DT'].notna().any() else '—'} → {df['FECHA_FACTURA_DT'].max().date() if df['FECHA_FACTURA_DT'].notna().any() else '—'}")
-
-    # Nulos por columna crítica
-    cols_audit = [c for c in COLS_MONTOS if c in df.columns] + ['FECHA_FACTURA_DT','SEMANA_ANALISIS','MES FACTURA']
-    audit_rows=[]
-    for c in cols_audit:
-        nulos = int(df[c].isna().sum()) if c in df.columns else 0
-        pct = nulos/len(df)*100 if len(df)>0 else 0
-        ceros = int((df[c]==0).sum()) if c in df.columns and pd.api.types.is_numeric_dtype(df[c]) else 0
-        audit_rows.append({"Columna":c, "Nulos":nulos, "% Nulos":f"{pct:.1f}%", "Ceros":ceros})
-    st.dataframe(pd.DataFrame(audit_rows), use_container_width=True, hide_index=True)
-
-    # Viajes con KG=0 pero con costo
-    if 'KG MOVIDOS' in df.columns and 'FLETE FACTURA' in df.columns:
-        sospechosos = df[(df['KG MOVIDOS']==0) & (df['FLETE FACTURA']>0)]
-        if not sospechosos.empty:
-            st.warning(f"⚠️ {len(sospechosos)} registros con **KG=0 pero FLETE>0** — revisar captura (posible error operativo)")
-            st.dataframe(sospechosos.head(50), use_container_width=True)
-
-    # Duplicados por ID
-    dups = df.duplicated(subset=['ID_VIAJE_UNICO'], keep=False)
-    if dups.any():
-        st.info(f"ℹ️ {dups.sum()} filas comparten ID_VIAJE_UNICO (múltiples líneas por viaje) — es esperado si hay desglose por tarima/producto.")
-
-    # Schema faltante
-    faltantes = [c for c in ['CLIENTE','TRANSPORTISTA','ORIGEN DE VIAJE','DESTINO DE EMBARQUE','TIPO DE TRANSPORTE','FECHA FACTURA'] if c not in df.columns]
-    if faltantes:
-        st.error(f"Columnas esperadas no encontradas: {', '.join(faltantes)} — algunos filtros/gráficos estarán deshabilitados.")
+tab1, tab2, tab3 = st.tabs(["📊 Comparativo Financiero y Gráficos","🚨 Auditoría de Anomalías","📝 Prompt para IA Executive"])
 
 with tab1:
     st.subheader(f"📊 Comparativa Real: {modo_periodo} {per_a} vs {modo_periodo} {per_b}")
@@ -469,8 +421,7 @@ with tab1:
 
 with tab2:
     st.subheader(f"🚨 Auditoría de Anomalías — {modo_periodo} {per_b}")
-    st.caption("Compara contra la tarifa media del periodo base y detecta outliers por ruta.")
-    metodo = st.radio("Método de detección:", ["Vs Media Base (original mejorado)", "IQR por Ruta (Origen-Destino)", "Z-Score por Ruta"], horizontal=True)
+    st.caption("Compara los viajes del periodo actual contra la tarifa media del periodo base.")
 
     df_bv = df_b[df_b['ES_CUENTA_VIAJE']==True].copy()
     if df_bv.empty:
@@ -485,47 +436,13 @@ with tab2:
         df_b_grouped = df_b_grouped.rename(columns={'ORIGEN DE VIAJE':'Origen','DESTINO DE EMBARQUE':'Destino','TARIMAS TOTALES POR VIAJE':'Tarimas','TIPO DE TRANSPORTE':'Unidad','IMPORTE FACTURADO SIN IVA':'Facturación'})
         df_b_grouped['RUTA'] = df_b_grouped.get('Origen','').astype(str) + " → " + df_b_grouped.get('Destino','').astype(str)
 
-        if metodo == "Vs Media Base (original mejorado)":
-            media_ref = media_viaje_a
-            viajes_altos = df_b_grouped[df_b_grouped['FLETE FACTURA'] > media_ref].copy()
-            viajes_altos['Diferencia vs Media Base'] = viajes_altos['FLETE FACTURA'] - media_ref
-            viajes_altos['% vs Media'] = np.where(media_ref>0, (viajes_altos['FLETE FACTURA']-media_ref)/media_ref*100, 0)
-            viajes_altos = viajes_altos.sort_values('FLETE FACTURA', ascending=False)
-            st.metric("Tarifa media base (referencia)", f"${media_ref:,.2f}", help="Promedio FLETE FACTURA / viaje en Periodo A")
-            st.metric("Viajes por encima de la media", f"{len(viajes_altos)} de {len(df_b_grouped)}", delta=f"{len(viajes_altos)/len(df_b_grouped)*100:.1f}%" if len(df_b_grouped)>0 else None)
-            df_show = viajes_altos
-        elif metodo == "IQR por Ruta (Origen-Destino)":
-            # Calcula IQR por ruta usando histórico (df completo) para robustez
-            df_hist = df[df['ES_CUENTA_VIAJE']==True].groupby(['ID_VIAJE_UNICO','ORIGEN DE VIAJE','DESTINO DE EMBARQUE']).agg({'FLETE FACTURA':'sum'}).reset_index() if 'ORIGEN DE VIAJE' in df.columns else df_b_grouped
-            # Para simplificar, usa IQR sobre df_b_grouped por ruta si hay >=4 viajes por ruta
-            def flag_iqr(g):
-                if len(g) < 4: return pd.Series([False]*len(g), index=g.index)
-                q1, q3 = g['FLETE FACTURA'].quantile(0.25), g['FLETE FACTURA'].quantile(0.75)
-                iqr = q3-q1
-                upper = q3 + 1.5*iqr
-                return g['FLETE FACTURA'] > upper
-            # necesita agrupar por RUTA en df_b_grouped
-            flags = df_b_grouped.groupby('RUTA', group_keys=False).apply(flag_iqr)
-            # fallback: si no hay suficientes por ruta, usa IQR global
-            if flags.sum()==0:
-                q1,q3 = df_b_grouped['FLETE FACTURA'].quantile(0.25), df_b_grouped['FLETE FACTURA'].quantile(0.75)
-                upper = q3 + 1.5*(q3-q1)
-                flags = df_b_grouped['FLETE FACTURA'] > upper
-                st.caption(f"IQR global aplicado (Q1=${q1:,.0f}, Q3=${q3:,.0f}, límite=${upper:,.0f}) — pocas muestras por ruta.")
-            df_show = df_b_grouped[flags].copy().sort_values('FLETE FACTURA', ascending=False)
-            st.warning(f"🚨 {len(df_show)} viajes outliers detectados por IQR")
-        else: # Z-Score
-            def flag_z(g):
-                if len(g) < 3 or g['FLETE FACTURA'].std()==0: return pd.Series([False]*len(g), index=g.index)
-                z = (g['FLETE FACTURA'] - g['FLETE FACTURA'].mean())/g['FLETE FACTURA'].std()
-                return z > 2
-            flags = df_b_grouped.groupby('RUTA', group_keys=False).apply(flag_z)
-            if flags.sum()==0:
-                mu, sigma = df_b_grouped['FLETE FACTURA'].mean(), df_b_grouped['FLETE FACTURA'].std()
-                flags = df_b_grouped['FLETE FACTURA'] > (mu + 2*sigma) if sigma>0 else pd.Series([False]*len(df_b_grouped))
-                st.caption(f"Z-Score global: μ=${mu:,.0f}, σ=${sigma:,.0f}, umbral μ+2σ=${mu+2*sigma:,.0f}")
-            df_show = df_b_grouped[flags].copy().sort_values('FLETE FACTURA', ascending=False)
-            st.warning(f"🚨 {len(df_show)} viajes outliers detectados por Z-Score (>2σ)")
+        media_ref = media_viaje_a
+        viajes_altos = df_b_grouped[df_b_grouped['FLETE FACTURA'] > media_ref].copy()
+        viajes_altos['Diferencia vs Media Base'] = viajes_altos['FLETE FACTURA'] - media_ref
+        viajes_altos['% vs Media'] = np.where(media_ref>0, (viajes_altos['FLETE FACTURA']-media_ref)/media_ref*100, 0)
+        df_show = viajes_altos.sort_values('FLETE FACTURA', ascending=False)
+        st.metric("Tarifa media base (referencia)", f"${media_ref:,.2f}", help="Promedio FLETE FACTURA / viaje en Periodo A")
+        st.metric("Viajes por encima de la media", f"{len(df_show)} de {len(df_b_grouped)}", delta=f"{len(df_show)/len(df_b_grouped)*100:.1f}%" if len(df_b_grouped)>0 else None)
 
         if not df_show.empty:
             cols_dinero = ['Facturación','FLETE FACTURA','MANIOBRAS','REPARTOS','DEMORAS Y ESTADIAS','OTROS','TOTAL FLETE']
@@ -540,7 +457,7 @@ with tab2:
             st.dataframe(df_vis[cols_orden], use_container_width=True, hide_index=True)
             # Export
             excel_audit = to_excel_bytes({"Auditoria": df_show})
-            st.download_button("📥 Descargar auditoría (Excel)", data=excel_audit, file_name=f"LogiSense_Auditoria_{modo_periodo}_{per_b}_{metodo[:10]}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button("📥 Descargar auditoría (Excel)", data=excel_audit, file_name=f"LogiSense_Auditoria_{modo_periodo}_{per_b}_MediaBase.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             # Gráfico de dispersión Flete vs KG para outliers
             fig_sc = px.scatter(df_b_grouped, x='KG MOVIDOS', y='FLETE FACTURA', color='RUTA', hover_data=['ID_VIAJE_UNICO','Unidad'], title="Flete vs KG — Outliers resaltados")
             # resalta outliers
@@ -548,7 +465,7 @@ with tab2:
                 fig_sc.add_trace(go.Scatter(x=df_show['KG MOVIDOS'] if 'KG MOVIDOS' in df_show.columns else df_show['FLETE FACTURA'], y=df_show['FLETE FACTURA'], mode='markers', marker=dict(size=14, line=dict(width=2,color='red'), color='rgba(255,0,0,0.15)'), name='Outlier'))
             st.plotly_chart(fig_sc, use_container_width=True)
         else:
-            st.success(f"✅ No se encontraron anomalías con el método **{metodo}** en {modo_periodo} {per_b}.")
+            st.success(f"✅ No se encontraron viajes por encima de la tarifa media base en {modo_periodo} {per_b}.")
             st.dataframe(df_b_grouped.head(20), use_container_width=True)
 
 with tab3:
