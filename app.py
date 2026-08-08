@@ -27,6 +27,18 @@ st.markdown("""
     transition: all 0.2s;
 }
 .kpi-card:hover { border-color: #dadce0; box-shadow: 0 1px 6px rgba(32,33,36,.1);}
+.info-mediana {
+    background: linear-gradient(135deg, #e8f0fe 0%, #f8f9ff 100%);
+    border: 1px solid #aecbfa;
+    border-left: 5px solid #1a73e8;
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin: 14px 0 6px 0;
+}
+.info-mediana h4 { margin: 0 0 6px 0; color: #174ea6; font-size: 14px; }
+.info-mediana p { margin: 4px 0; color: #202124; font-size: 13px; line-height: 1.5; }
+.info-mediana li { margin: 3px 0; color: #202124; font-size: 13px; line-height: 1.5; }
+.badge-mediana { background: #1a73e8; color: white; font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 10px; margin-left: 8px; vertical-align: middle;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -335,6 +347,46 @@ var_tar = _var_pct(tar_b,tar_a)
 var_costo_kg = _var_pct(costo_kg_b,costo_kg_a)
 var_costo_tar = _var_pct(costo_tar_b,costo_tar_a)
 
+# ---------- MEDIANA (valor del medio) - robusta a outliers ----------
+def _mediana_flete_viaje(dframe):
+    """Mediana del FLETE FACTURA por viaje único (sensible a ID_VIAJE_UNICO). Si no hay ID, mediana por fila."""
+    if dframe.empty or 'FLETE FACTURA' not in dframe.columns:
+        return 0.0
+    s = dframe['FLETE FACTURA'].dropna()
+    if s.empty:
+        return 0.0
+    # si hay ID_VIAJE_UNICO, agrupar por viaje (suma por viaje) para no duplicar
+    if 'ID_VIAJE_UNICO' in dframe.columns and 'ES_CUENTA_VIAJE' in dframe.columns:
+        try:
+            grp = dframe[dframe['ES_CUENTA_VIAJE']==True].groupby('ID_VIAJE_UNICO')['FLETE FACTURA'].sum()
+            if not grp.empty:
+                return float(grp.median())
+        except Exception:
+            pass
+    return float(s.median())
+
+def _stats_flete_viaje(dframe):
+    """Retorna dict con mediana, media, std, q1, q3 por viaje."""
+    if dframe.empty or 'FLETE FACTURA' not in dframe.columns:
+        return dict(mediana=0, media=0, std=0, q1=0, q3=0, n=0)
+    if 'ID_VIAJE_UNICO' in dframe.columns and 'ES_CUENTA_VIAJE' in dframe.columns:
+        grp = dframe[dframe['ES_CUENTA_VIAJE']==True].groupby('ID_VIAJE_UNICO')['FLETE FACTURA'].sum().dropna()
+    else:
+        grp = dframe['FLETE FACTURA'].dropna()
+    if grp.empty:
+        return dict(mediana=0, media=0, std=0, q1=0, q3=0, n=0)
+    return dict(mediana=float(grp.median()), media=float(grp.mean()), std=float(grp.std(ddof=1)) if len(grp)>1 else 0.0, q1=float(grp.quantile(0.25)), q3=float(grp.quantile(0.75)), n=int(len(grp)))
+
+stats_a = _stats_flete_viaje(df_a)
+stats_b = _stats_flete_viaje(df_b)
+mediana_viaje_a = stats_a['mediana']
+mediana_viaje_b = stats_b['mediana']
+var_mediana = _var_pct(mediana_viaje_b, mediana_viaje_a)
+brecha_a = media_viaje_a - mediana_viaje_a
+brecha_b = media_viaje_b - mediana_viaje_b
+brecha_pct_a = (brecha_a/mediana_viaje_a*100) if mediana_viaje_a else 0
+brecha_pct_b = (brecha_b/mediana_viaje_b*100) if mediana_viaje_b else 0
+
 # ---------- TABS ----------
 tab1, tab2, tab3 = st.tabs(["📊 Comparativo Financiero y Gráficos","🚨 Auditoría de Anomalías","📝 Prompt para IA Executive"])
 
@@ -348,10 +400,63 @@ with tab1:
     with m_col3: render_kpi_safe(f"Tarifa Media / Viaje ({modo_periodo} {per_a} ➜ {per_b})", f"${media_viaje_a:,.2f}", f"${media_viaje_b:,.2f}", f"{var_costo:+.1f}%", False, var_costo)
     with m_col4: render_kpi_safe(f"KG Movidos ({modo_periodo} {per_a} ➜ {per_b})", f"{kg_a:,.0f} kg", f"{kg_b:,.0f} kg", f"{var_kg:+.1f}%", True, var_kg)
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    m_col5,m_col6,m_col7 = st.columns(3)
+    m_col5,m_col6,m_col7,m_col8 = st.columns(4)
     with m_col5: render_kpi_safe(f"Tarimas Totales ({modo_periodo} {per_a} ➜ {per_b})", f"{tar_a:,.0f}", f"{tar_b:,.0f}", f"{var_tar:+.1f}%", True, var_tar)
     with m_col6: render_kpi_safe(f"Costo por KG ({modo_periodo} {per_a} ➜ {per_b})", f"${costo_kg_a:,.2f}", f"${costo_kg_b:,.2f}", f"{var_costo_kg:+.1f}%", False, var_costo_kg)
     with m_col7: render_kpi_safe(f"Costo por Tarima ({modo_periodo} {per_a} ➜ {per_b})", f"${costo_tar_a:,.2f}", f"${costo_tar_b:,.2f}", f"{var_costo_tar:+.1f}%", False, var_costo_tar)
+    with m_col8: render_kpi_safe(f"⭐ Mediana / Viaje ({modo_periodo} {per_a} ➜ {per_b})", f"${mediana_viaje_a:,.2f}", f"${mediana_viaje_b:,.2f}", f"{var_mediana:+.1f}%", False, var_mediana)
+
+    # --- CUADRITO EXPLICATIVO MEDIANA (súper didáctico) ---
+    # Calcula lecturas automáticas para que el usuario entienda el número sin ser técnico
+    try:
+        _brecha_txt_b = f"+${brecha_b:,.0f} ({brecha_pct_b:+.1f}%)" if brecha_b >=0 else f"-${abs(brecha_b):,.0f} ({brecha_pct_b:.1f}%)"
+        _brecha_txt_a = f"+${brecha_a:,.0f} ({brecha_pct_a:+.1f}%)" if brecha_a >=0 else f"-${abs(brecha_a):,.0f} ({brecha_pct_a:.1f}%)"
+    except:
+        _brecha_txt_a = _brecha_txt_b = "—"
+    # Diagnóstico automático
+    if abs(brecha_pct_b) < 5:
+        _diag = "✅ <b>Distribución pareja:</b> media y mediana casi iguales → no hay fletes atípicos inflando el promedio."
+        _color_diag = "#137333"
+    elif brecha_pct_b >= 15:
+        _diag = "🚨 <b>Media muy por encima de la mediana:</b> unos pocos fletes muy caros están <i>jalando</i> la media hacia arriba. La <b>mediana</b> refleja mejor lo que pagas en la mayoría de viajes."
+        _color_diag = "#a50e0e"
+    elif brecha_pct_b >= 5:
+        _diag = "⚠️ <b>Asimetría moderada:</b> hay fletes por encima de lo típico que elevan la media. Revisa los viajes más caros."
+        _color_diag = "#b06000"
+    elif brecha_pct_b <= -5:
+        _diag = "ℹ️ <b>Mediana por encima de la media:</b> hubo varios fletes baratos (o descuentos) que bajan la media. La mediana muestra el costo más frecuente."
+        _color_diag = "#174ea6"
+    else:
+        _diag = "ℹ️ Revisa la dispersión: la diferencia media-mediana es pequeña."
+        _color_diag = "#5f6368"
+
+    st.markdown(f'''
+    <div class="info-mediana">
+        <h4>📊 ¿Qué es la MEDIANA y cómo leerla? <span class="badge-mediana">NUEVO</span></h4>
+        <p><b>La mediana es el valor del medio.</b> Si ordenas todos tus fletes de barato a caro, la mediana es el que queda justo en el centro — <b>50% de los viajes costaron menos y 50% costaron más.</b></p>
+        <p>¿Por qué importa? A diferencia de la <b>media (promedio)</b>, la <b>mediana NO se deja engañar por un flete extremo</b>. Ejemplo: <i>si 9 viajes cuestan $10,000 y 1 viaje se dispara a $80,000, la media sube a $17,000 pero la mediana sigue en $10,000</i> — te dice lo que realmente pagas en la mayoría de los viajes.</p>
+        <div style="display:flex; gap:12px; flex-wrap:wrap; margin:10px 0;">
+            <div style="flex:1; min-width:180px; background:white; border:1px solid #dadce0; border-radius:8px; padding:10px; text-align:center;">
+                <div style="font-size:11px; color:#5f6368; font-weight:700;">MEDIANA {modo_periodo} {per_a}</div>
+                <div style="font-size:18px; font-weight:900; color:#1a73e8;">${mediana_viaje_a:,.0f}</div>
+                <div style="font-size:11px; color:#5f6368;">Q1 ${stats_a['q1']:,.0f} · Q3 ${stats_a['q3']:,.0f} · n={stats_a['n']}</div>
+            </div>
+            <div style="flex:1; min-width:180px; background:white; border:1px solid #dadce0; border-radius:8px; padding:10px; text-align:center;">
+                <div style="font-size:11px; color:#5f6368; font-weight:700;">MEDIANA {modo_periodo} {per_b}</div>
+                <div style="font-size:18px; font-weight:900; color:#1a73e8;">${mediana_viaje_b:,.0f}</div>
+                <div style="font-size:11px; color:#5f6368;">Q1 ${stats_b['q1']:,.0f} · Q3 ${stats_b['q3']:,.0f} · n={stats_b['n']}</div>
+            </div>
+            <div style="flex:1; min-width:180px; background:#fff8e1; border:1px solid #fdd663; border-radius:8px; padding:10px; text-align:center;">
+                <div style="font-size:11px; color:#5f6368; font-weight:700;">BRECHA MEDIA vs MEDIANA (B)</div>
+                <div style="font-size:15px; font-weight:900; color:{_color_diag};">Media ${media_viaje_b:,.0f} vs Mediana ${mediana_viaje_b:,.0f}</div>
+                <div style="font-size:12px; font-weight:800; color:{_color_diag};">Δ {_brecha_txt_b} por encima</div>
+            </div>
+        </div>
+        <p style="background:white; border-radius:8px; padding:10px; border:1px solid #e8eaed;"><span style="color:{_color_diag}; font-weight:800;">→ Lectura automática:</span> {_diag} <br>
+        <span style="font-size:12px; color:#5f6368;"><b>Tip para negociar:</b> si la mediana sube, tu tarifa <i>típica</i> subió (negocia tarifa base). Si solo sube la media, son casos puntuales — audita esos viajes en la pestaña <b>Auditoría</b> y pide desglose de maniobras/demoras/otros.</span></p>
+        <p style="font-size:11px; color:#70757a; margin-top:6px;">💡 <b>Cómo usarla:</b> Compara siempre <b>Mediana vs Media</b>. Si <b>Media &gt;&gt; Mediana</b> → hay outliers caros. Si son parecidas → tu costo es estable. La variación de la mediana ({var_mediana:+.1f}%) te dice si el costo <i>habitual</i> realmente aumentó.</p>
+    </div>
+    ''', unsafe_allow_html=True)
 
     # Gráfico tendencia
     st.markdown("---")
@@ -419,7 +524,23 @@ with tab1:
 
 with tab2:
     st.subheader(f"🚨 Auditoría de Anomalías — {modo_periodo} {per_b}")
-    st.caption("Compara los viajes del periodo actual contra la tarifa media del periodo base.")
+    st.caption("Compara los viajes del periodo actual contra la tarifa mediana y media del periodo base. La mediana te protege de outliers.")
+    # --- Cuadrito explicativo mediana en Auditoría ---
+    st.markdown(f'''
+    <div class="info-mediana" style="margin-bottom:14px;">
+        <h4>⭐ ¿Cuándo usar MEDIANA vs MEDIA para auditar?</h4>
+        <p><b>Media:</b> promedio de todos los fletes. Un solo flete de $80k dispara la media aunque los demás estén en $10k.</p>
+        <p><b>Mediana (valor del medio):</b> el flete que queda justo a la mitad si los ordenas. <b>No la mueve un extremo</b>, por eso es tu <b>tarifa típica real</b>.</p>
+        <p style="background:white; border-radius:8px; padding:8px; border:1px solid #e8eaed; margin-top:8px;">
+            <b>Referencias del periodo base ({modo_periodo} {per_a}):</b> &nbsp;
+            <span style="background:#e8f0fe; padding:3px 8px; border-radius:10px; font-weight:800; color:#174ea6;">Mediana ${mediana_viaje_a:,.0f}</span>
+            &nbsp; <span style="background:#fef7e0; padding:3px 8px; border-radius:10px; font-weight:800; color:#7a5900;">Media ${media_viaje_a:,.0f}</span>
+            &nbsp; <span style="background:white; padding:3px 8px; border-radius:10px; border:1px solid #dadce0;">Q1 ${stats_a['q1']:,.0f} → Q3 ${stats_a['q3']:,.0f}</span>
+            &nbsp; <span style="color:#5f6368; font-size:11px;">n={stats_a['n']} viajes</span><br>
+            <span style="font-size:12px; color:#5f6368;">💡 <b>Regla rápida:</b> audita todo viaje &gt; <b>mediana</b> para ver lo típico, y &gt; <b>media</b> para cazar solo los más extremos. Si media ≫ mediana, la operación tiene picos caros que distorsionan el promedio.</span>
+        </p>
+    </div>
+    ''', unsafe_allow_html=True)
 
     df_bv = df_b[df_b['ES_CUENTA_VIAJE']==True].copy()
     if df_bv.empty:
@@ -435,35 +556,79 @@ with tab2:
         df_b_grouped['RUTA'] = df_b_grouped.get('Origen','').astype(str) + " → " + df_b_grouped.get('Destino','').astype(str)
 
         media_ref = media_viaje_a
+        mediana_ref = mediana_viaje_a
+        # --- KPIs dobles: vs mediana y vs media ---
+        c_m1, c_m2, c_m3 = st.columns(3)
+        with c_m1:
+            st.metric("⭐ Mediana base (referencia típica)", f"${mediana_ref:,.2f}", help="Valor del medio: 50% de los viajes costaron menos y 50% más. No lo mueve un flete extremo.")
+        with c_m2:
+            st.metric("📊 Media base (promedio)", f"${media_ref:,.2f}", help="Promedio FLETE FACTURA / viaje. Sí la mueve un flete extremo.")
+        with c_m3:
+            brecha_ref = media_ref - mediana_ref
+            brecha_pct = (brecha_ref/mediana_ref*100) if mediana_ref else 0
+            st.metric("↔ Brecha media-mediana", f"${brecha_ref:+,.0f} ({brecha_pct:+.1f}%)", help="Si es grande y positiva, hay outliers caros inflando la media.")
+
+        # Auditoría doble: por encima de mediana y por encima de media
+        viajes_sobre_mediana = df_b_grouped[df_b_grouped['FLETE FACTURA'] > mediana_ref].copy()
+        viajes_sobre_mediana['Diferencia vs Mediana Base'] = viajes_sobre_mediana['FLETE FACTURA'] - mediana_ref
+        viajes_sobre_mediana['% vs Mediana'] = np.where(mediana_ref>0, (viajes_sobre_mediana['FLETE FACTURA']-mediana_ref)/mediana_ref*100, 0)
         viajes_altos = df_b_grouped[df_b_grouped['FLETE FACTURA'] > media_ref].copy()
         viajes_altos['Diferencia vs Media Base'] = viajes_altos['FLETE FACTURA'] - media_ref
         viajes_altos['% vs Media'] = np.where(media_ref>0, (viajes_altos['FLETE FACTURA']-media_ref)/media_ref*100, 0)
         df_show = viajes_altos.sort_values('FLETE FACTURA', ascending=False)
-        st.metric("Tarifa media base (referencia)", f"${media_ref:,.2f}", help="Promedio FLETE FACTURA / viaje en Periodo A")
-        st.metric("Viajes por encima de la media", f"{len(df_show)} de {len(df_b_grouped)}", delta=f"{len(df_show)/len(df_b_grouped)*100:.1f}%" if len(df_b_grouped)>0 else None)
+        df_show_med = viajes_sobre_mediana.sort_values('FLETE FACTURA', ascending=False)
+
+        k1,k2 = st.columns(2)
+        with k1:
+            st.metric("Viajes > mediana base", f"{len(viajes_sobre_mediana)} de {len(df_b_grouped)}", delta=f"{len(viajes_sobre_mediana)/len(df_b_grouped)*100:.1f}%" if len(df_b_grouped)>0 else None, help="Cuántos viajes del periodo actual superan la tarifa típica (mediana). Si son muchos, la tarifa base subió de verdad.")
+        with k2:
+            st.metric("Viajes > media base", f"{len(df_show)} de {len(df_b_grouped)}", delta=f"{len(df_show)/len(df_b_grouped)*100:.1f}%" if len(df_b_grouped)>0 else None, help="Solo los más caros por encima del promedio (más estricto).")
+
+        # Selector para que el usuario elija qué umbral ver
+        umbral_sel = st.radio("Ver viajes por encima de:", ["Mediana base (recomendado — tarifa típica)", "Media base (solo extremos)"], horizontal=True, key="umbral_audit")
+        if "Mediana" in umbral_sel:
+            df_show = df_show_med
+            col_dif = 'Diferencia vs Mediana Base'
+            col_pct = '% vs Mediana'
+        else:
+            col_dif = 'Diferencia vs Media Base'
+            col_pct = '% vs Media'
+
+        # Histograma de distribución con líneas de mediana y media (didáctico visual)
+        try:
+            fig_hist = px.histogram(df_b_grouped, x='FLETE FACTURA', nbins=20, title=f"Distribución de fletes por viaje — {modo_periodo} {per_b} (líneas: mediana vs media base)", color_discrete_sequence=['#aecbfa'])
+            fig_hist.add_vline(x=mediana_ref, line_dash="dash", line_color="#1a73e8", annotation_text=f"Mediana base ${mediana_ref:,.0f}", annotation_position="top")
+            fig_hist.add_vline(x=media_ref, line_dash="dot", line_color="#ea4335", annotation_text=f"Media base ${media_ref:,.0f}", annotation_position="top")
+            fig_hist.add_vline(x=float(df_b_grouped['FLETE FACTURA'].median()), line_dash="solid", line_color="#34a853", annotation_text=f"Mediana actual ${float(df_b_grouped['FLETE FACTURA'].median()):,.0f}")
+            fig_hist.update_layout(showlegend=False, height=320, margin=dict(t=50))
+            st.plotly_chart(fig_hist, use_container_width=True)
+            st.caption("📖 Cómo leerlo: si la barra más alta y la línea azul (mediana) están juntas, tu tarifa típica es estable. Barras aisladas a la derecha = viajes atípicos caros que empujan la media (línea roja) lejos de la mediana.")
+        except Exception as e:
+            pass
 
         if not df_show.empty:
             cols_dinero = ['Facturación','FLETE FACTURA','MANIOBRAS','REPARTOS','DEMORAS Y ESTADIAS','OTROS','TOTAL FLETE']
             df_vis = df_show.copy()
-            for col in cols_dinero + ['Diferencia vs Media Base']:
+            # formatea columnas de dinero dinámicamente (mediana o media)
+            for col in cols_dinero + [col_dif]:
                 if col in df_vis.columns:
                     df_vis[col] = df_vis[col].apply(lambda x: f"${x:,.2f}" if pd.notna(x) else "—")
-            if '% vs Media' in df_vis.columns:
-                df_vis['% vs Media'] = df_vis['% vs Media'].apply(lambda x: f"{x:+.1f}%")
-            # Orden columnas
-            cols_orden = [c for c in ['ID_VIAJE_UNICO','RUTA','Origen','Destino','Unidad','Tarimas','KG MOVIDOS','Facturación','FLETE FACTURA','MANIOBRAS','REPARTOS','DEMORAS Y ESTADIAS','OTROS','TOTAL FLETE','Diferencia vs Media Base','% vs Media'] if c in df_vis.columns]
+            if col_pct in df_vis.columns:
+                df_vis[col_pct] = df_vis[col_pct].apply(lambda x: f"{x:+.1f}%")
+            # Orden columnas dinámico
+            cols_orden = [c for c in ['ID_VIAJE_UNICO','RUTA','Origen','Destino','Unidad','Tarimas','KG MOVIDOS','Facturación','FLETE FACTURA','MANIOBRAS','REPARTOS','DEMORAS Y ESTADIAS','OTROS','TOTAL FLETE',col_dif,col_pct] if c in df_vis.columns]
             st.dataframe(df_vis[cols_orden], use_container_width=True, hide_index=True)
-            # Export
-            excel_audit = to_excel_bytes({"Auditoria": df_show})
-            st.download_button("📥 Descargar auditoría (Excel)", data=excel_audit, file_name=f"LogiSense_Auditoria_{modo_periodo}_{per_b}_MediaBase.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            # Export con ambas auditorías
+            excel_audit = to_excel_bytes({"Auditoria_Sobre_Mediana": df_show_med, "Auditoria_Sobre_Media": viajes_altos, "Vista_Actual": df_show})
+            st.download_button("📥 Descargar auditoría (Excel)", data=excel_audit, file_name=f"LogiSense_Auditoria_{modo_periodo}_{per_b}_Mediana_vs_Media.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             # Gráfico de dispersión Flete vs KG para outliers
-            fig_sc = px.scatter(df_b_grouped, x='KG MOVIDOS', y='FLETE FACTURA', color='RUTA', hover_data=['ID_VIAJE_UNICO','Unidad'], title="Flete vs KG — Outliers resaltados")
-            # resalta outliers
+            fig_sc = px.scatter(df_b_grouped, x='KG MOVIDOS', y='FLETE FACTURA', color='RUTA', hover_data=['ID_VIAJE_UNICO','Unidad'], title="Flete vs KG — Outliers resaltados (puntos grandes = sobre umbral)")
+            # resalta outliers según umbral seleccionado
             if not df_show.empty:
-                fig_sc.add_trace(go.Scatter(x=df_show['KG MOVIDOS'] if 'KG MOVIDOS' in df_show.columns else df_show['FLETE FACTURA'], y=df_show['FLETE FACTURA'], mode='markers', marker=dict(size=14, line=dict(width=2,color='red'), color='rgba(255,0,0,0.15)'), name='Outlier'))
+                fig_sc.add_trace(go.Scatter(x=df_show['KG MOVIDOS'] if 'KG MOVIDOS' in df_show.columns else df_show['FLETE FACTURA'], y=df_show['FLETE FACTURA'], mode='markers', marker=dict(size=14, line=dict(width=2,color='red'), color='rgba(255,0,0,0.18)'), name=f'Sobre {"mediana" if "Mediana" in umbral_sel else "media"}'))
             st.plotly_chart(fig_sc, use_container_width=True)
         else:
-            st.success(f"✅ No se encontraron viajes por encima de la tarifa media base en {modo_periodo} {per_b}.")
+            st.success(f"✅ No se encontraron viajes por encima de la {'mediana' if 'Mediana' in umbral_sel else 'media'} base en {modo_periodo} {per_b}.")
             st.dataframe(df_b_grouped.head(20), use_container_width=True)
 
 with tab3:
@@ -472,8 +637,9 @@ with tab3:
 Analiza la siguiente variación de fletes, ventas e imprevistos financieros y genera un reporte ejecutivo.
 
 DATOS COMPARATIVOS ({modo_periodo.upper()} {per_a} vs {modo_periodo.upper()} {per_b}):
-- Periodo Base ({modo_periodo} {per_a}): Facturación Venta: ${fact_a:,.2f} | Viajes Reales: {viajes_a} | KG Movidos: {kg_a:,.0f} | Tarimas: {tar_a:,.0f} | Costo Puro/KG: ${costo_kg_a:,.2f} | Costo Puro/Tarima: ${costo_tar_a:,.2f} | Tarifa Media/Viaje: ${media_viaje_a:,.2f} | Gasto Operación Total: ${tot_a:,.2f}
-- Periodo Actual ({modo_periodo} {per_b}): Facturación Venta: ${fact_b:,.2f} | Viajes Reales: {viajes_b} | KG Movidos: {kg_b:,.0f} | Tarimas: {tar_b:,.0f} | Costo Puro/KG: ${costo_kg_b:,.2f} | Costo Puro/Tarima: ${costo_tar_b:,.2f} | Tarifa Media/Viaje: ${media_viaje_b:,.2f} | Gasto Operación Total: ${tot_b:,.2f}
+- Periodo Base ({modo_periodo} {per_a}): Facturación Venta: ${fact_a:,.2f} | Viajes Reales: {viajes_a} | KG Movidos: {kg_a:,.0f} | Tarimas: {tar_a:,.0f} | Costo Puro/KG: ${costo_kg_a:,.2f} | Costo Puro/Tarima: ${costo_tar_a:,.2f} | Tarifa Media/Viaje: ${media_viaje_a:,.2f} | ⭐ Mediana/Viaje: ${mediana_viaje_a:,.2f} (Q1 ${stats_a['q1']:,.0f} - Q3 ${stats_a['q3']:,.0f}) | Brecha Media-Mediana: ${brecha_a:+,.0f} ({brecha_pct_a:+.1f}%) | Gasto Operación Total: ${tot_a:,.2f}
+- Periodo Actual ({modo_periodo} {per_b}): Facturación Venta: ${fact_b:,.2f} | Viajes Reales: {viajes_b} | KG Movidos: {kg_b:,.0f} | Tarimas: {tar_b:,.0f} | Costo Puro/KG: ${costo_kg_b:,.2f} | Costo Puro/Tarima: ${costo_tar_b:,.2f} | Tarifa Media/Viaje: ${media_viaje_b:,.2f} | ⭐ Mediana/Viaje: ${mediana_viaje_b:,.2f} (Q1 ${stats_b['q1']:,.0f} - Q3 ${stats_b['q3']:,.0f}) | Brecha Media-Mediana: ${brecha_b:+,.0f} ({brecha_pct_b:+.1f}%) | Gasto Operación Total: ${tot_b:,.2f}
+- Variación Mediana/Viaje: {var_mediana:+.2f}% (indica si la tarifa TÍPICA realmente subió, sin distorsión de outliers)
 - Variación en Facturación de Ventas: {var_fact:+.2f}%
 - Variación del Gasto Total de la Operación: {var_tot:+.2f}%
 - Filtros Operativos -> Cliente: {clientes_sel if clientes_sel else 'Todos'} | Transportista: {transp_sel if transp_sel else 'Todos'} | Tipo de Transporte: {tipo_trans_sel if tipo_trans_sel else 'Todos'} | Tipo de Embarque: {embarque_sel if embarque_sel else 'Todos'} | Origen: {origen_sel if origen_sel else 'Todos'} | Destino: {destino_sel if destino_sel else 'Todos'}
