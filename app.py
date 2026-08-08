@@ -64,7 +64,7 @@ def procesar_archivo(file):
 
     df_out = pd.concat(lista_dfs, ignore_index=True)
 
-    # LIMPIEZA RIGUROSA DE INDICE VIAJES (Filtra de raíz filas con NA, N/A, vacías o sin número válido)
+    # LIMPIEZA RIGUROSA DE INDICE VIAJES
     if 'INDICE VIAJES' in df_out.columns:
         idx_limpio = df_out['INDICE VIAJES'].astype(str).str.strip().str.upper()
         idx_limpio = idx_limpio.replace(['NA', 'N/A', 'NONE', 'NAN', 'UNDEFINED', 'NULL', ''], np.nan)
@@ -74,7 +74,6 @@ def procesar_archivo(file):
         df_out['ID_VIAJE_UNICO'] = indices_numericos[indices_numericos.notna() & (indices_numericos > 0)].astype(int)
         df_out['ES_CUENTA_VIAJE'] = True
     else:
-        st.warning("⚠️ No se encontró la columna 'INDICE VIAJES' en el archivo cargado.")
         df_out['ID_VIAJE_UNICO'] = df_out.index
         df_out['ES_CUENTA_VIAJE'] = True
 
@@ -127,9 +126,9 @@ if archivo_subido is not None:
         df_raw = procesar_archivo(archivo_subido)
 
     if not df_raw.empty:
-        st.success("✅ Base de datos cargada y filtrada dinámicamente (se omitieron filas sin 'INDICE VIAJES').")
+        st.success("✅ Base de datos cargada y filtrada dinámicamente.")
 
-        # BARRA LATERAL: FILTROS DE ANÁLISIS
+        # BARRA LATERAL: FILTROS OPERATIVOS
         st.sidebar.header("🔍 Filtros Operativos")
 
         col_cliente = 'CLIENTE'
@@ -184,7 +183,7 @@ if archivo_subido is not None:
 
         if modo_periodo == "Semana":
             col_periodo = 'SEMANA_ANALISIS'
-            periodos = sorted([int(x) for x in df[col_periodo].dropna().unique()])
+            periodos = sorted([int(x) for x in df[col_periodo].dropna().unique()]) if col_periodo in df.columns else []
             label_a, label_b = "Semana A (Base)", "Semana B (Actual)"
             if len(periodos) > 0:
                 c_per1, c_per2 = st.sidebar.columns(2)
@@ -197,7 +196,7 @@ if archivo_subido is not None:
 
         elif modo_periodo == "Mes":
             col_periodo = 'MES FACTURA'
-            meses_existentes = df[col_periodo].dropna().unique()
+            meses_existentes = df[col_periodo].dropna().unique() if col_periodo in df.columns else []
             periodos = [m for m in NOMBRES_MESES if m in meses_existentes]
             label_a, label_b = "Mes A (Base)", "Mes B (Actual)"
             if len(periodos) > 0:
@@ -225,49 +224,45 @@ if archivo_subido is not None:
                     ini_a, fin_a = pd.to_datetime(rango_a[0]), pd.to_datetime(rango_a[1])
                     df_a = df[(df['FECHA_FACTURA_DT'] >= ini_a) & (df['FECHA_FACTURA_DT'] <= fin_a)]
                     per_a = f"{rango_a[0]} al {rango_a[1]}"
-                else:
-                    df_a = pd.DataFrame()
-
+                
                 if isinstance(rango_b, tuple) and len(rango_b) == 2:
                     ini_b, fin_b = pd.to_datetime(rango_b[0]), pd.to_datetime(rango_b[1])
                     df_b = df[(df['FECHA_FACTURA_DT'] >= ini_b) & (df['FECHA_FACTURA_DT'] <= fin_b)]
                     per_b = f"{rango_b[0]} al {rango_b[1]}"
-                else:
-                    df_b = pd.DataFrame()
             else:
-                st.sidebar.warning("⚠️ No se encontró o no se pudo interpretar la columna 'FECHA FACTURA'.")
+                st.sidebar.warning("⚠️ No se encontró la columna 'FECHA FACTURA' válida.")
                 datos_validos = False
 
-        if datos_validos and not df_a.empty or not df_b.empty:
+        if datos_validos and not df.empty:
             # TABS DE VISUALIZACIÓN
             tab1, tab2, tab3 = st.tabs(["📊 Comparativo Financiero y Gráficos", "🚨 Auditoría de Anomalías", "📝 Prompt para IA Executive"])
 
             with tab1:
                 st.subheader(f"📊 Comparativa Real: {modo_periodo} ({per_a}) vs ({per_b})")
 
-                df_a_principales = df_a[df_a['ES_CUENTA_VIAJE'] == True]
-                df_b_principales = df_b[df_b['ES_CUENTA_VIAJE'] == True]
+                df_a_principales = df_a[df_a['ES_CUENTA_VIAJE'] == True] if not df_a.empty and 'ES_CUENTA_VIAJE' in df_a.columns else pd.DataFrame()
+                df_b_principales = df_b[df_b['ES_CUENTA_VIAJE'] == True] if not df_b.empty and 'ES_CUENTA_VIAJE' in df_b.columns else pd.DataFrame()
 
-                viajes_a = df_a_principales['ID_VIAJE_UNICO'].dropna().nunique()
-                viajes_b = df_b_principales['ID_VIAJE_UNICO'].dropna().nunique()
+                viajes_a = df_a_principales['ID_VIAJE_UNICO'].dropna().nunique() if not df_a_principales.empty and 'ID_VIAJE_UNICO' in df_a_principales.columns else 0
+                viajes_b = df_b_principales['ID_VIAJE_UNICO'].dropna().nunique() if not df_b_principales.empty and 'ID_VIAJE_UNICO' in df_b_principales.columns else 0
 
-                tot_a = df_a['TOTAL FLETE'].sum() if 'TOTAL FLETE' in df_a.columns else 0
-                tot_b = df_b['TOTAL FLETE'].sum() if 'TOTAL FLETE' in df_b.columns else 0
+                tot_a = df_a['TOTAL FLETE'].sum() if not df_a.empty and 'TOTAL FLETE' in df_a.columns else 0
+                tot_b = df_b['TOTAL FLETE'].sum() if not df_b.empty and 'TOTAL FLETE' in df_b.columns else 0
 
-                fact_a = df_a['IMPORTE FACTURADO SIN IVA'].sum() if 'IMPORTE FACTURADO SIN IVA' in df_a.columns else 0
-                fact_b = df_b['IMPORTE FACTURADO SIN IVA'].sum() if 'IMPORTE FACTURADO SIN IVA' in df_b.columns else 0
+                fact_a = df_a['IMPORTE FACTURADO SIN IVA'].sum() if not df_a.empty and 'IMPORTE FACTURADO SIN IVA' in df_a.columns else 0
+                fact_b = df_b['IMPORTE FACTURADO SIN IVA'].sum() if not df_b.empty and 'IMPORTE FACTURADO SIN IVA' in df_b.columns else 0
 
-                flete_puro_a = df_a['FLETE FACTURA'].sum() if 'FLETE FACTURA' in df_a.columns else 0
-                flete_puro_b = df_b['FLETE FACTURA'].sum() if 'FLETE FACTURA' in df_b.columns else 0
+                flete_puro_a = df_a['FLETE FACTURA'].sum() if not df_a.empty and 'FLETE FACTURA' in df_a.columns else 0
+                flete_puro_b = df_b['FLETE FACTURA'].sum() if not df_b.empty and 'FLETE FACTURA' in df_b.columns else 0
 
                 media_viaje_a = (flete_puro_a / viajes_a) if viajes_a > 0 else 0
                 media_viaje_b = (flete_puro_b / viajes_b) if viajes_b > 0 else 0
 
-                kg_a = df_a['KG MOVIDOS'].sum() if 'KG MOVIDOS' in df_a.columns else 0
-                kg_b = df_b['KG MOVIDOS'].sum() if 'KG MOVIDOS' in df_b.columns else 0
+                kg_a = df_a['KG MOVIDOS'].sum() if not df_a.empty and 'KG MOVIDOS' in df_a.columns else 0
+                kg_b = df_b['KG MOVIDOS'].sum() if not df_b.empty and 'KG MOVIDOS' in df_b.columns else 0
 
-                tar_a = df_a['TARIMAS TOTALES POR VIAJE'].sum() if 'TARIMAS TOTALES POR VIAJE' in df_a.columns else 0
-                tar_b = df_b['TARIMAS TOTALES POR VIAJE'].sum() if 'TARIMAS TOTALES POR VIAJE' in df_b.columns else 0
+                tar_a = df_a['TARIMAS TOTALES POR VIAJE'].sum() if not df_a.empty and 'TARIMAS TOTALES POR VIAJE' in df_a.columns else 0
+                tar_b = df_b['TARIMAS TOTALES POR VIAJE'].sum() if not df_b.empty and 'TARIMAS TOTALES POR VIAJE' in df_b.columns else 0
 
                 costo_kg_a = (flete_puro_a / kg_a) if kg_a > 0 else 0
                 costo_kg_b = (flete_puro_b / kg_b) if kg_b > 0 else 0
@@ -287,58 +282,23 @@ if archivo_subido is not None:
                 
                 m_col1, m_col2, m_col3, m_col4 = st.columns(4)
                 with m_col1:
-                    render_kpi(
-                        f"Facturación Venta",
-                        f"${fact_a:,.2f}", f"${fact_b:,.2f}",
-                        f"{var_fact:+.1f}%",
-                        is_positive_good=True, val_num=var_fact
-                    )
+                    render_kpi("Facturación Venta", f"${fact_a:,.2f}", f"${fact_b:,.2f}", f"{var_fact:+.1f}%", is_positive_good=True, val_num=var_fact)
                 with m_col2:
-                    render_kpi(
-                        f"Total Viajes Reales",
-                        f"{viajes_a}", f"{viajes_b}",
-                        f"{var_viajes:+} viajes",
-                        is_positive_good=True, val_num=var_viajes
-                    )
+                    render_kpi("Total Viajes Reales", f"{viajes_a}", f"{viajes_b}", f"{var_viajes:+} viajes", is_positive_good=True, val_num=var_viajes)
                 with m_col3:
-                    render_kpi(
-                        f"Tarifa Media / Viaje",
-                        f"${media_viaje_a:,.2f}", f"${media_viaje_b:,.2f}",
-                        f"{var_costo:+.1f}%",
-                        is_positive_good=False, val_num=var_costo
-                    )
+                    render_kpi("Tarifa Media / Viaje", f"${media_viaje_a:,.2f}", f"${media_viaje_b:,.2f}", f"{var_costo:+.1f}%", is_positive_good=False, val_num=var_costo)
                 with m_col4:
-                    render_kpi(
-                        f"KG Movidos",
-                        f"{kg_a:,.0f} kg", f"{kg_b:,.0f} kg",
-                        f"{var_kg:+.1f}%",
-                        is_positive_good=True, val_num=var_kg
-                    )
+                    render_kpi("KG Movidos", f"{kg_a:,.0f} kg", f"{kg_b:,.0f} kg", f"{var_kg:+.1f}%", is_positive_good=True, val_num=var_kg)
 
                 st.markdown("<br>", unsafe_allow_html=True)
                 
                 m_col5, m_col6, m_col7 = st.columns(3)
                 with m_col5:
-                    render_kpi(
-                        f"Tarimas Totales",
-                        f"{tar_a:,.0f}", f"{tar_b:,.0f}",
-                        f"{var_tar:+.1f}%",
-                        is_positive_good=True, val_num=var_tar
-                    )
+                    render_kpi("Tarimas Totales", f"{tar_a:,.0f}", f"{tar_b:,.0f}", f"{var_tar:+.1f}%", is_positive_good=True, val_num=var_tar)
                 with m_col6:
-                    render_kpi(
-                        f"Costo por Kilogramo",
-                        f"${costo_kg_a:,.2f}", f"${costo_kg_b:,.2f}",
-                        f"{var_costo_kg:+.1f}%",
-                        is_positive_good=False, val_num=var_costo_kg
-                    )
+                    render_kpi("Costo por Kilogramo", f"${costo_kg_a:,.2f}", f"${costo_kg_b:,.2f}", f"{var_costo_kg:+.1f}%", is_positive_good=False, val_num=var_costo_kg)
                 with m_col7:
-                    render_kpi(
-                        f"Costo por Tarima",
-                        f"${costo_tar_a:,.2f}", f"${costo_tar_b:,.2f}",
-                        f"{var_costo_tar:+.1f}%",
-                        is_positive_good=False, val_num=var_costo_tar
-                    )
+                    render_kpi("Costo por Tarima", f"${costo_tar_a:,.2f}", f"${costo_tar_b:,.2f}", f"{var_costo_tar:+.1f}%", is_positive_good=False, val_num=var_costo_tar)
 
                 # GRÁFICO DE LÍNEAS
                 st.markdown("---")
@@ -393,14 +353,15 @@ if archivo_subido is not None:
                 df_grouped['COSTO_TARIMA'] = np.where(df_grouped['TARIMAS TOTALES POR VIAJE'] > 0, df_grouped['FLETE FACTURA'] / df_grouped['TARIMAS TOTALES POR VIAJE'], 0)
 
                 if metricas_seleccionadas and not df_grouped.empty:
-                    cols_y = [dict_metricas[m] for m in metricas_seleccionadas]
-                    fig_lineas = px.line(
-                        df_grouped, x='Periodo', y=cols_y, markers=True,
-                        title=f"Evolución por {modo_periodo}",
-                        labels={'value': 'Monto ($) / Cantidad', 'variable': 'Métrica'}
-                    )
-                    fig_lineas.update_layout(hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                    st.plotly_chart(fig_lineas, use_container_width=True)
+                    cols_y = [dict_metricas[m] for m in metricas_seleccionadas if dict_metricas[m] in df_grouped.columns]
+                    if cols_y:
+                        fig_lineas = px.line(
+                            df_grouped, x='Periodo', y=cols_y, markers=True,
+                            title=f"Evolución por {modo_periodo}",
+                            labels={'value': 'Monto ($) / Cantidad', 'variable': 'Métrica'}
+                        )
+                        fig_lineas.update_layout(hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                        st.plotly_chart(fig_lineas, use_container_width=True)
 
                 st.markdown("---")
                 st.markdown("### 💵 Desglose de Gastos Acumulados")
@@ -409,8 +370,8 @@ if archivo_subido is not None:
                 filas = []
 
                 for conc in conceptos:
-                    m_a = df_a[conc].sum() if conc in df_a.columns else 0
-                    m_b = df_b[conc].sum() if conc in df_b.columns else 0
+                    m_a = df_a[conc].sum() if not df_a.empty and conc in df_a.columns else 0
+                    m_b = df_b[conc].sum() if not df_b.empty and conc in df_b.columns else 0
                     dif = m_b - m_a
                     pct = ((m_b - m_a) / m_a * 100) if m_a > 0 else 0
 
@@ -426,51 +387,54 @@ if archivo_subido is not None:
 
             # TAB 2: AUDITORÍA DE ANOMALÍAS
             with tab2:
-                df_b_validos = df_b[df_b['ES_CUENTA_VIAJE'] == True]
-                
-                df_b_grouped = df_b_validos.groupby('ID_VIAJE_UNICO').agg({
-                    'CLIENTE': 'first',
-                    'TRANSPORTISTA': 'first',
-                    'ORIGEN DE VIAJE': 'first',
-                    'DESTINO DE EMBARQUE': 'first',
-                    'TARIMAS TOTALES POR VIAJE': 'sum',
-                    'TIPO DE TRANSPORTE': 'first',
-                    'KG MOVIDOS': 'sum',
-                    'IMPORTE FACTURADO SIN IVA': 'sum',
-                    'FLETE FACTURA': 'sum',
-                    'MANIOBRAS': 'sum',
-                    'REPARTOS': 'sum',
-                    'DEMORAS Y ESTADIAS': 'sum',
-                    'OTROS': 'sum',
-                    'TOTAL FLETE': 'sum'
-                }).reset_index()
-
-                df_b_grouped = df_b_grouped.rename(columns={
-                    'ORIGEN DE VIAJE': 'Origen',
-                    'DESTINO DE EMBARQUE': 'Destino',
-                    'TARIMAS TOTALES POR VIAJE': 'Tarimas',
-                    'TIPO DE TRANSPORTE': 'Unidad',
-                    'IMPORTE FACTURADO SIN IVA': 'Facturación'
-                })
-
-                media_ref = media_viaje_a
-                viajes_altos = df_b_grouped[df_b_grouped['FLETE FACTURA'] > media_ref].copy()
-
-                if not viajes_altos.empty:
-                    viajes_altos['Diferencia vs Media Base'] = viajes_altos['FLETE FACTURA'] - media_ref
-                    viajes_altos = viajes_altos.sort_values(by='FLETE FACTURA', ascending=False)
-
-                    cols_dinero = ['Facturación', 'FLETE FACTURA', 'MANIOBRAS', 'REPARTOS', 'DEMORAS Y ESTADIAS', 'OTROS', 'TOTAL FLETE', 'Diferencia vs Media Base']
-                    df_visualizacion = viajes_altos.copy()
+                if not df_b.empty and 'ES_CUENTA_VIAJE' in df_b.columns:
+                    df_b_validos = df_b[df_b['ES_CUENTA_VIAJE'] == True]
                     
-                    for col in cols_dinero:
-                        if col in df_visualizacion.columns:
-                            df_visualizacion[col] = df_visualizacion[col].apply(lambda x: f"${x:,.2f}")
+                    df_b_grouped = df_b_validos.groupby('ID_VIAJE_UNICO').agg({
+                        'CLIENTE': 'first',
+                        'TRANSPORTISTA': 'first',
+                        'ORIGEN DE VIAJE': 'first',
+                        'DESTINO DE EMBARQUE': 'first',
+                        'TARIMAS TOTALES POR VIAJE': 'sum',
+                        'TIPO DE TRANSPORTE': 'first',
+                        'KG MOVIDOS': 'sum',
+                        'IMPORTE FACTURADO SIN IVA': 'sum',
+                        'FLETE FACTURA': 'sum',
+                        'MANIOBRAS': 'sum',
+                        'REPARTOS': 'sum',
+                        'DEMORAS Y ESTADIAS': 'sum',
+                        'OTROS': 'sum',
+                        'TOTAL FLETE': 'sum'
+                    }).reset_index()
 
-                    st.warning(f"🚨 Auditoría: **{len(viajes_altos)} viajes únicos** en el Periodo B superan la tarifa flete base promedio del Periodo A (${media_ref:,.2f})")
-                    st.dataframe(df_visualizacion, use_container_width=True, hide_index=True)
+                    df_b_grouped = df_b_grouped.rename(columns={
+                        'ORIGEN DE VIAJE': 'Origen',
+                        'DESTINO DE EMBARQUE': 'Destino',
+                        'TARIMAS TOTALES POR VIAJE': 'Tarimas',
+                        'TIPO DE TRANSPORTE': 'Unidad',
+                        'IMPORTE FACTURADO SIN IVA': 'Facturación'
+                    })
+
+                    media_ref = media_viaje_a
+                    viajes_altos = df_b_grouped[df_b_grouped['FLETE FACTURA'] > media_ref].copy()
+
+                    if not viajes_altos.empty:
+                        viajes_altos['Diferencia vs Media Base'] = viajes_altos['FLETE FACTURA'] - media_ref
+                        viajes_altos = viajes_altos.sort_values(by='FLETE FACTURA', ascending=False)
+
+                        cols_dinero = ['Facturación', 'FLETE FACTURA', 'MANIOBRAS', 'REPARTOS', 'DEMORAS Y ESTADIAS', 'OTROS', 'TOTAL FLETE', 'Diferencia vs Media Base']
+                        df_visualizacion = viajes_altos.copy()
+                        
+                        for col in cols_dinero:
+                            if col in df_visualizacion.columns:
+                                df_visualizacion[col] = df_visualizacion[col].apply(lambda x: f"${x:,.2f}")
+
+                        st.warning(f"🚨 Auditoría: **{len(viajes_altos)} viajes únicos** en el Periodo B superan la tarifa flete base promedio del Periodo A (${media_ref:,.2f})")
+                        st.dataframe(df_visualizacion, use_container_width=True, hide_index=True)
+                    else:
+                        st.success(f"✅ No se encontraron fletes en el Periodo B que superen la media del Periodo A.")
                 else:
-                    st.success(f"✅ No se encontraron fletes en el Periodo B que superen la media del Periodo A.")
+                    st.info("No hay datos suficientes en el Periodo B para realizar la auditoría.")
 
             # TAB 3: PROMPT GENERATOR
             with tab3:
@@ -484,12 +448,11 @@ DATOS COMPARATIVOS ({modo_periodo.upper()}):
 - Periodo Actual ({per_b}): Facturación Venta: ${fact_b:,.2f} | Viajes Reales: {viajes_b} | KG Movidos: {kg_b:,.0f} | Tarimas: {tar_b:,.0f} | Costo Puro/KG: ${costo_kg_b:,.2f} | Costo Puro/Tarima: ${costo_tar_b:,.2f} | Tarifa Media/Viaje: ${media_viaje_b:,.2f} | Gasto Operación Total: ${tot_b:,.2f}
 - Variación en Facturación de Ventas: {var_fact:+.2f}%
 - Variación del Gasto Total de la Operación: {var_tot:+.2f}%
-- Filtros Operativos -> Cliente: {clientes_sel if clientes_sel else 'Todos'} | Transportista: {transp_sel if transp_sel else 'Todos'} | Tipo de Transporte: {tipo_trans_sel if tipo_trans_sel else 'Todos'} | Tipo de Embarque: {embarque_sel if embarque_sel else 'Todos'} | Origen: {origen_sel if origen_sel else 'Todos'} | Destino: {destino_sel if destino_sel else 'Todos'}
 
 ESTRUCTURA DEL REPORTE SOLICITADA:
 1. 📌 Resumen Ejecutivo
-2. 🚨 Alertas Operativas (Relación Ventas vs Costos de Fletes, Desviación en Tarifa Base por Viaje, Costo por KG y Tarimas)
-3. 💡 Recomendaciones para Negociación de Tarifas y Eficiencia en Costos Variables"""
+2. 🚨 Alertas Operativas 
+3. 💡 Recomendaciones para Negociación de Tarifas y Eficiencia"""
 
                 st.code(prompt_texto, language="markdown")
         else:
