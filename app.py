@@ -212,8 +212,6 @@ if df_raw.empty:
 
 if 'warning' in meta:
     st.warning(f"⚠️ {meta['warning']}")
-else:
-    st.success(f"✅ Base cargada: **{len(df_raw):,} registros válidos** • Viajes únicos: **{df_raw['ID_VIAJE_UNICO'].nunique():,}** • Descartados sin índice válido: **{meta.get('viajes_descartados',0):,}**")
 
 # --- Sidebar Filtros ---
 st.sidebar.header("🔍 Filtros Operativos")
