@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-# -*- coding: utf-8 -*-
-"""LogiSense AI v2.1 — Refactorizado | Desarrollado por José Daniel Maldonado Flores"""
+"""LogiSense AI | Desarrollado por José Daniel Maldonado Flores"""
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -213,8 +212,6 @@ if df_raw.empty:
 
 if 'warning' in meta:
     st.warning(f"⚠️ {meta['warning']}")
-else:
-    st.success(f"✅ Base cargada: **{len(df_raw):,} registros válidos** • Viajes únicos: **{df_raw['ID_VIAJE_UNICO'].nunique():,}** • Descartados sin índice válido: **{meta.get('viajes_descartados',0):,}**")
 
 # --- Sidebar Filtros ---
 st.sidebar.header("🔍 Filtros Operativos")
@@ -397,17 +394,18 @@ with tab1:
     dif_b = media_viaje_b - mediana_viaje_b
     pct_a = ((media_viaje_a - mediana_viaje_a)/mediana_viaje_a*100) if mediana_viaje_a!=0 else 0
     pct_b = ((media_viaje_b - mediana_viaje_b)/mediana_viaje_b*100) if mediana_viaje_b!=0 else 0
+    etiqueta_periodo = "Día" if modo_periodo == "Día (Calendario)" else modo_periodo
     def _txt_exp(dif, pct):
+        if dif < 0:
+            return "El promedio es más bajo porque hay algunos viajes con importes muy bajos."
         if abs(pct) < 3:
-            return "Distribucion bastante simetrica. Media ≈ Mediana, sin sesgo fuerte."
-        elif dif > 0:
-            return "Media > Mediana \u2192 sesgo a la derecha. Pocos viajes caros elevan el promedio por encima del viaje tipico."
+            return "El promedio y el valor central son muy parecidos. Los viajes tienen montos similares."
         else:
-            return "Media < Mediana \u2192 sesgo a la izquierda. Pocos viajes baratos jalan el promedio por debajo del viaje tipico."
+            return "El promedio es más alto porque hay algunos viajes con importes muy altos."
     with c1:
         st.markdown(f"""
         <div class="kpi-card" style="border-left:4px solid #1a73e8">
-            <p style="font-size:12px;color:#5f6368;margin-bottom:4px;font-weight:700">\u25a3 Periodo {per_a} \u2014 Media vs Mediana</p>
+            <p style="font-size:12px;color:#5f6368;margin-bottom:4px;font-weight:700">\u25a3 {etiqueta_periodo} {per_a} \u2014 Media vs Mediana</p>
             <p style="font-size:14px;margin:4px 0"><b>Media:</b> ${media_viaje_a:,.2f} &nbsp;|&nbsp; <b>Mediana:</b> ${mediana_viaje_a:,.2f}</p>
             <p style="font-size:12px;margin:4px 0"><span style="background:#e8f0fe;color:#1a73e8;padding:3px 8px;border-radius:10px;font-weight:700">Dif: ${dif_a:+,.2f} ({pct_a:+.1f}%)</span></p>
             <p style="font-size:11px;color:#3c4043;margin-top:8px;line-height:1.3">{html_lib.escape(_txt_exp(dif_a, pct_a))}</p>
@@ -416,7 +414,7 @@ with tab1:
     with c2:
         st.markdown(f"""
         <div class="kpi-card" style="border-left:4px solid #ea4335">
-            <p style="font-size:12px;color:#5f6368;margin-bottom:4px;font-weight:700">\u25a3 Periodo {per_b} \u2014 Media vs Mediana</p>
+            <p style="font-size:12px;color:#5f6368;margin-bottom:4px;font-weight:700">\u25a3 {etiqueta_periodo} {per_b} \u2014 Media vs Mediana</p>
             <p style="font-size:14px;margin:4px 0"><b>Media:</b> ${media_viaje_b:,.2f} &nbsp;|&nbsp; <b>Mediana:</b> ${mediana_viaje_b:,.2f}</p>
             <p style="font-size:12px;margin:4px 0"><span style="background:#fce8e6;color:#a50e0e;padding:3px 8px;border-radius:10px;font-weight:700">Dif: ${dif_b:+,.2f} ({pct_b:+.1f}%)</span></p>
             <p style="font-size:11px;color:#3c4043;margin-top:8px;line-height:1.3">{html_lib.escape(_txt_exp(dif_b, pct_b))}</p>
