@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""LogiSense AI.ipynb
+"""LogiSense AI.ipynb"""
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -67,11 +67,9 @@ def procesar_archivo(file):
     # LIMPIEZA RIGUROSA DE INDICE VIAJES (Filtra de raíz filas con NA, N/A, vacías o sin número válido)
     if 'INDICE VIAJES' in df_out.columns:
         idx_limpio = df_out['INDICE VIAJES'].astype(str).str.strip().str.upper()
-        # Reemplazar valores no válidos por NaN
         idx_limpio = idx_limpio.replace(['NA', 'N/A', 'NONE', 'NAN', 'UNDEFINED', 'NULL', ''], np.nan)
         indices_numericos = pd.to_numeric(idx_limpio, errors='coerce')
         
-        # Filtrar el dataframe completo descartando las filas vacías/invalidas en INDICE VIAJES
         df_out = df_out[indices_numericos.notna() & (indices_numericos > 0)].copy()
         df_out['ID_VIAJE_UNICO'] = indices_numericos[indices_numericos.notna() & (indices_numericos > 0)].astype(int)
         df_out['ES_CUENTA_VIAJE'] = True
@@ -80,13 +78,18 @@ def procesar_archivo(file):
         df_out['ID_VIAJE_UNICO'] = df_out.index
         df_out['ES_CUENTA_VIAJE'] = True
 
-    # Normalización de Semana y Mes
+    # Normalización de Semana, Mes y Fecha Factura
     col_sem = 'SEMANA CALENDARIO FACTURA' if 'SEMANA CALENDARIO FACTURA' in df_out.columns else 'SEMANA CALENDARIO PEDIDO'
     if col_sem in df_out.columns:
         df_out['SEMANA_ANALISIS'] = pd.to_numeric(df_out[col_sem], errors='coerce')
 
     if 'MES FACTURA' not in df_out.columns:
         df_out['MES FACTURA'] = df_out['MES_ORIGEN']
+
+    if 'FECHA FACTURA' in df_out.columns:
+        df_out['FECHA_FACTURA_DT'] = pd.to_datetime(df_out['FECHA FACTURA'], errors='coerce')
+    else:
+        df_out['FECHA_FACTURA_DT'] = pd.NaT
 
     # Limpieza numérica de montos y cantidades
     cols_a_limpiar = [
@@ -126,7 +129,7 @@ if archivo_subido is not None:
     if not df_raw.empty:
         st.success("✅ Base de datos cargada y filtrada dinámicamente (se omitieron filas sin 'INDICE VIAJES').")
 
-        # BARRA LATERAL: FILTROS DE ANÁLISIS (Se generan únicamente con los viajes válidos)
+        # BARRA LATERAL: FILTROS DE ANÁLISIS
         st.sidebar.header("🔍 Filtros Operativos")
 
         col_cliente = 'CLIENTE'
@@ -171,31 +174,76 @@ if archivo_subido is not None:
         # SELECCIÓN DE PERIODO
         st.sidebar.markdown("---")
         st.sidebar.header("📅 Periodos de Comparación")
-        modo_periodo = st.sidebar.radio("Comparar por:", ["Semana", "Mes"])
+        modo_periodo = st.sidebar.radio("Comparar por:", ["Semana", "Mes", "Día (Calendario)"])
+
+        datos_validos = True
+        df_a = pd.DataFrame()
+        df_b = pd.DataFrame()
+        label_a, label_b = "", ""
+        per_a, per_b = "", ""
 
         if modo_periodo == "Semana":
             col_periodo = 'SEMANA_ANALISIS'
             periodos = sorted([int(x) for x in df[col_periodo].dropna().unique()])
             label_a, label_b = "Semana A (Base)", "Semana B (Actual)"
-        else:
+            if len(periodos) > 0:
+                c_per1, c_per2 = st.sidebar.columns(2)
+                per_a = c_per1.selectbox(label_a, periodos, index=0)
+                per_b = c_per2.selectbox(label_b, periodos, index=min(1, len(periodos)-1))
+                df_a = df[df[col_periodo] == per_a]
+                df_b = df[df[col_periodo] == per_b]
+            else:
+                datos_validos = False
+
+        elif modo_periodo == "Mes":
             col_periodo = 'MES FACTURA'
             meses_existentes = df[col_periodo].dropna().unique()
             periodos = [m for m in NOMBRES_MESES if m in meses_existentes]
             label_a, label_b = "Mes A (Base)", "Mes B (Actual)"
+            if len(periodos) > 0:
+                c_per1, c_per2 = st.sidebar.columns(2)
+                per_a = c_per1.selectbox(label_a, periodos, index=0)
+                per_b = c_per2.selectbox(label_b, periodos, index=min(1, len(periodos)-1))
+                df_a = df[df[col_periodo] == per_a]
+                df_b = df[df[col_periodo] == per_b]
+            else:
+                datos_validos = False
 
-        if len(periodos) > 0:
-            c_per1, c_per2 = st.sidebar.columns(2)
-            per_a = c_per1.selectbox(label_a, periodos, index=0)
-            per_b = c_per2.selectbox(label_b, periodos, index=min(1, len(periodos)-1))
+        else:  # Modo Día con Calendario
+            label_a, label_b = "Periodo A (Base)", "Periodo B (Actual)"
+            if 'FECHA_FACTURA_DT' in df.columns and not df['FECHA_FACTURA_DT'].dropna().empty:
+                min_f = df['FECHA_FACTURA_DT'].min().date()
+                max_f = df['FECHA_FACTURA_DT'].max().date()
 
-            df_a = df[df[col_periodo] == per_a]
-            df_b = df[df[col_periodo] == per_b]
+                st.sidebar.markdown("##### 🗓️ Rango Periodo A (Base)")
+                rango_a = st.sidebar.date_input("Fechas A", value=(min_f, min_f), min_value=min_f, max_value=max_f, key="rango_a")
+                
+                st.sidebar.markdown("##### 🗓️ Rango Periodo B (Actual)")
+                rango_b = st.sidebar.date_input("Fechas B", value=(max_f, max_f), min_value=min_f, max_value=max_f, key="rango_b")
 
+                if isinstance(rango_a, tuple) and len(rango_a) == 2:
+                    ini_a, fin_a = pd.to_datetime(rango_a[0]), pd.to_datetime(rango_a[1])
+                    df_a = df[(df['FECHA_FACTURA_DT'] >= ini_a) & (df['FECHA_FACTURA_DT'] <= fin_a)]
+                    per_a = f"{rango_a[0]} al {rango_a[1]}"
+                else:
+                    df_a = pd.DataFrame()
+
+                if isinstance(rango_b, tuple) and len(rango_b) == 2:
+                    ini_b, fin_b = pd.to_datetime(rango_b[0]), pd.to_datetime(rango_b[1])
+                    df_b = df[(df['FECHA_FACTURA_DT'] >= ini_b) & (df['FECHA_FACTURA_DT'] <= fin_b)]
+                    per_b = f"{rango_b[0]} al {rango_b[1]}"
+                else:
+                    df_b = pd.DataFrame()
+            else:
+                st.sidebar.warning("⚠️ No se encontró o no se pudo interpretar la columna 'FECHA FACTURA'.")
+                datos_validos = False
+
+        if datos_validos and not df_a.empty or not df_b.empty:
             # TABS DE VISUALIZACIÓN
             tab1, tab2, tab3 = st.tabs(["📊 Comparativo Financiero y Gráficos", "🚨 Auditoría de Anomalías", "📝 Prompt para IA Executive"])
 
             with tab1:
-                st.subheader(f"📊 Comparativa Real: {modo_periodo} {per_a} vs {modo_periodo} {per_b}")
+                st.subheader(f"📊 Comparativa Real: {modo_periodo} ({per_a}) vs ({per_b})")
 
                 df_a_principales = df_a[df_a['ES_CUENTA_VIAJE'] == True]
                 df_b_principales = df_b[df_b['ES_CUENTA_VIAJE'] == True]
@@ -237,32 +285,31 @@ if archivo_subido is not None:
 
                 st.markdown("### 📐 Resumen de Indicadores Clave")
                 
-                # Primera fila de KPIs
                 m_col1, m_col2, m_col3, m_col4 = st.columns(4)
                 with m_col1:
                     render_kpi(
-                        f"Facturación Venta ({modo_periodo} {per_a} ➜ {per_b})",
+                        f"Facturación Venta",
                         f"${fact_a:,.2f}", f"${fact_b:,.2f}",
                         f"{var_fact:+.1f}%",
                         is_positive_good=True, val_num=var_fact
                     )
                 with m_col2:
                     render_kpi(
-                        f"Total Viajes Reales ({modo_periodo} {per_a} ➜ {per_b})",
+                        f"Total Viajes Reales",
                         f"{viajes_a}", f"{viajes_b}",
                         f"{var_viajes:+} viajes",
                         is_positive_good=True, val_num=var_viajes
                     )
                 with m_col3:
                     render_kpi(
-                        f"Tarifa Media / Viaje ({modo_periodo} {per_a} ➜ {per_b})",
+                        f"Tarifa Media / Viaje",
                         f"${media_viaje_a:,.2f}", f"${media_viaje_b:,.2f}",
                         f"{var_costo:+.1f}%",
                         is_positive_good=False, val_num=var_costo
                     )
                 with m_col4:
                     render_kpi(
-                        f"KG Movidos ({modo_periodo} {per_a} ➜ {per_b})",
+                        f"KG Movidos",
                         f"{kg_a:,.0f} kg", f"{kg_b:,.0f} kg",
                         f"{var_kg:+.1f}%",
                         is_positive_good=True, val_num=var_kg
@@ -270,25 +317,24 @@ if archivo_subido is not None:
 
                 st.markdown("<br>", unsafe_allow_html=True)
                 
-                # Segunda fila de KPIs
                 m_col5, m_col6, m_col7 = st.columns(3)
                 with m_col5:
                     render_kpi(
-                        f"Tarimas Totales ({modo_periodo} {per_a} ➜ {per_b})",
+                        f"Tarimas Totales",
                         f"{tar_a:,.0f}", f"{tar_b:,.0f}",
                         f"{var_tar:+.1f}%",
                         is_positive_good=True, val_num=var_tar
                     )
                 with m_col6:
                     render_kpi(
-                        f"Costo por Kilogramo ({modo_periodo} {per_a} ➜ {per_b})",
+                        f"Costo por Kilogramo",
                         f"${costo_kg_a:,.2f}", f"${costo_kg_b:,.2f}",
                         f"{var_costo_kg:+.1f}%",
                         is_positive_good=False, val_num=var_costo_kg
                     )
                 with m_col7:
                     render_kpi(
-                        f"Costo por Tarima ({modo_periodo} {per_a} ➜ {per_b})",
+                        f"Costo por Tarima",
                         f"${costo_tar_a:,.2f}", f"${costo_tar_b:,.2f}",
                         f"{var_costo_tar:+.1f}%",
                         is_positive_good=False, val_num=var_costo_tar
@@ -327,13 +373,21 @@ if archivo_subido is not None:
                         'OTROS': 'sum', 'TOTAL FLETE': 'sum', 'KG MOVIDOS': 'sum', 
                         'TARIMAS TOTALES POR VIAJE': 'sum'
                     }).reset_index().rename(columns={'PERIODO_ORDEN': 'Periodo'})
-                else:
+                elif modo_periodo == "Semana":
                     df_grouped = df_trend.groupby('SEMANA_ANALISIS').agg({
                         'IMPORTE FACTURADO SIN IVA': 'sum', 'FLETE FACTURA': 'sum', 
                         'MANIOBRAS': 'sum', 'REPARTOS': 'sum', 'DEMORAS Y ESTADIAS': 'sum', 
                         'OTROS': 'sum', 'TOTAL FLETE': 'sum', 'KG MOVIDOS': 'sum', 
                         'TARIMAS TOTALES POR VIAJE': 'sum'
                     }).reset_index().rename(columns={'SEMANA_ANALISIS': 'Periodo'})
+                else:
+                    df_trend['FECHA_STR'] = df_trend['FECHA_FACTURA_DT'].dt.strftime('%Y-%m-%d')
+                    df_grouped = df_trend.groupby('FECHA_STR').agg({
+                        'IMPORTE FACTURADO SIN IVA': 'sum', 'FLETE FACTURA': 'sum', 
+                        'MANIOBRAS': 'sum', 'REPARTOS': 'sum', 'DEMORAS Y ESTADIAS': 'sum', 
+                        'OTROS': 'sum', 'TOTAL FLETE': 'sum', 'KG MOVIDOS': 'sum', 
+                        'TARIMAS TOTALES POR VIAJE': 'sum'
+                    }).reset_index().rename(columns={'FECHA_STR': 'Periodo'}).sort_values('Periodo')
 
                 df_grouped['COSTO_KG'] = np.where(df_grouped['KG MOVIDOS'] > 0, df_grouped['FLETE FACTURA'] / df_grouped['KG MOVIDOS'], 0)
                 df_grouped['COSTO_TARIMA'] = np.where(df_grouped['TARIMAS TOTALES POR VIAJE'] > 0, df_grouped['FLETE FACTURA'] / df_grouped['TARIMAS TOTALES POR VIAJE'], 0)
@@ -362,8 +416,8 @@ if archivo_subido is not None:
 
                     filas.append({
                         'Línea de Gasto': conc,
-                        f'{modo_periodo} {per_a}': f"${m_a:,.2f}",
-                        f'{modo_periodo} {per_b}': f"${m_b:,.2f}",
+                        'Periodo A': f"${m_a:,.2f}",
+                        'Periodo B': f"${m_b:,.2f}",
                         'Diferencia ($)': f"${dif:,.2f}",
                         'Variación (%)': f"{pct:+.1f}%"
                     })
@@ -413,10 +467,10 @@ if archivo_subido is not None:
                         if col in df_visualizacion.columns:
                             df_visualizacion[col] = df_visualizacion[col].apply(lambda x: f"${x:,.2f}")
 
-                    st.warning(f"🚨 Auditoría: **{len(viajes_altos)} viajes únicos** en el {modo_periodo} {per_b} superan la tarifa flete base promedio del {modo_periodo} {per_a} (${media_ref:,.2f})")
+                    st.warning(f"🚨 Auditoría: **{len(viajes_altos)} viajes únicos** en el Periodo B superan la tarifa flete base promedio del Periodo A (${media_ref:,.2f})")
                     st.dataframe(df_visualizacion, use_container_width=True, hide_index=True)
                 else:
-                    st.success(f"✅ No se encontraron fletes en el {modo_periodo} {per_b} que superen la media del {modo_periodo} {per_a}.")
+                    st.success(f"✅ No se encontraron fletes en el Periodo B que superen la media del Periodo A.")
 
             # TAB 3: PROMPT GENERATOR
             with tab3:
@@ -425,9 +479,9 @@ if archivo_subido is not None:
                 prompt_texto = f"""Actúa como un Gerente Senior de Logística y Cadena de Suministro.
 Analiza la siguiente variación de fletes, ventas e imprevistos financieros y genera un reporte ejecutivo.
 
-DATOS COMPARATIVOS ({modo_periodo.upper()} {per_a} vs {modo_periodo.upper()} {per_b}):
-- Periodo Base ({modo_periodo} {per_a}): Facturación Venta: ${fact_a:,.2f} | Viajes Reales: {viajes_a} | KG Movidos: {kg_a:,.0f} | Tarimas: {tar_a:,.0f} | Costo Puro/KG: ${costo_kg_a:,.2f} | Costo Puro/Tarima: ${costo_tar_a:,.2f} | Tarifa Media/Viaje: ${media_viaje_a:,.2f} | Gasto Operación Total: ${tot_a:,.2f}
-- Periodo Actual ({modo_periodo} {per_b}): Facturación Venta: ${fact_b:,.2f} | Viajes Reales: {viajes_b} | KG Movidos: {kg_b:,.0f} | Tarimas: {tar_b:,.0f} | Costo Puro/KG: ${costo_kg_b:,.2f} | Costo Puro/Tarima: ${costo_tar_b:,.2f} | Tarifa Media/Viaje: ${media_viaje_b:,.2f} | Gasto Operación Total: ${tot_b:,.2f}
+DATOS COMPARATIVOS ({modo_periodo.upper()}):
+- Periodo Base ({per_a}): Facturación Venta: ${fact_a:,.2f} | Viajes Reales: {viajes_a} | KG Movidos: {kg_a:,.0f} | Tarimas: {tar_a:,.0f} | Costo Puro/KG: ${costo_kg_a:,.2f} | Costo Puro/Tarima: ${costo_tar_a:,.2f} | Tarifa Media/Viaje: ${media_viaje_a:,.2f} | Gasto Operación Total: ${tot_a:,.2f}
+- Periodo Actual ({per_b}): Facturación Venta: ${fact_b:,.2f} | Viajes Reales: {viajes_b} | KG Movidos: {kg_b:,.0f} | Tarimas: {tar_b:,.0f} | Costo Puro/KG: ${costo_kg_b:,.2f} | Costo Puro/Tarima: ${costo_tar_b:,.2f} | Tarifa Media/Viaje: ${media_viaje_b:,.2f} | Gasto Operación Total: ${tot_b:,.2f}
 - Variación en Facturación de Ventas: {var_fact:+.2f}%
 - Variación del Gasto Total de la Operación: {var_tot:+.2f}%
 - Filtros Operativos -> Cliente: {clientes_sel if clientes_sel else 'Todos'} | Transportista: {transp_sel if transp_sel else 'Todos'} | Tipo de Transporte: {tipo_trans_sel if tipo_trans_sel else 'Todos'} | Tipo de Embarque: {embarque_sel if embarque_sel else 'Todos'} | Origen: {origen_sel if origen_sel else 'Todos'} | Destino: {destino_sel if destino_sel else 'Todos'}
