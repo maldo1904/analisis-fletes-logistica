@@ -7,6 +7,35 @@ import plotly.express as px
 import plotly.graph_objects as go
 import html as html_lib
 import io
+import os
+
+# --- Función para cargar datos ---
+def load_data(file_path):
+    return pd.read_excel(file_path)
+
+st.title("LogiSense AI")
+
+# Definir la ruta del archivo por defecto
+default_data_path = "data/datos_ficticios.xlsx" 
+
+# --- Lógica de carga ---
+uploaded_file = st.sidebar.file_uploader("Sube tu archivo Excel", type=["xlsx"])
+
+if uploaded_file is not None:
+    # Si el usuario sube uno, usamos ese
+    df = pd.read_excel(uploaded_file)
+else:
+    # Si NO hay archivo subido, cargamos el de muestra automáticamente
+    if os.path.exists(default_data_path):
+        st.info("Mostrando datos de ejemplo. Sube tu archivo en la barra lateral para analizar tu propia información.")
+        df = load_data(default_data_path)
+    else:
+        st.warning("Por favor, sube un archivo Excel para comenzar.")
+        st.stop() # Detenemos la app hasta que suban algo
+
+# A partir de aquí, 'df' ya contiene los datos (ya sean los del usuario o los de ejemplo)
+# Continúa con tu lógica de análisis...
+
 
 st.set_page_config(page_title="LogiSense AI v2.1", layout="wide", page_icon="🚚")
 
