@@ -7,9 +7,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 import html as html_lib
 import io
-import os
-from pathlib import Path
-
 
 st.set_page_config(page_title="LogiSense AI v2.1", layout="wide", page_icon="🚚")
 
@@ -43,7 +40,7 @@ def _limpiar_serie_numerica(s: pd.Series) -> pd.Series:
     # normaliza vacíos
     sc = sc.replace(['', 'nan','NaN','NAN','None','NONE','null','NULL'], np.nan)
     # remover símbolos monetarios y separadores de miles
-    sc = sc.str.replace(r'\[\$,%\\s\]', '', regex=True)
+    sc = sc.str.replace(r'[\$,%\s]', '', regex=True)
     sc = sc.str.replace(',', '', regex=False)
     # si queda vacío -> NaN
     sc = sc.replace('', np.nan)
@@ -195,43 +192,19 @@ def to_excel_bytes(dfs: dict):
     bio.seek(0)
     return bio.getvalue()
 
-
-def obtener_archivo_por_defecto():
-    """Devuelve bytes y nombre del archivo por defecto si existe en la carpeta data."""
-    base_dir = Path(__file__).resolve().parent.parent
-    rutas = [
-        base_dir / "data" / "datos_ficticios.xlsx",
-        base_dir / "data" / "datos_ficticios.csv",
-        Path.cwd() / "data" / "datos_ficticios.xlsx",
-        Path.cwd() / "data" / "datos_ficticios.csv",
-    ]
-    for ruta in rutas:
-        if ruta.exists():
-            return ruta.read_bytes(), ruta.name
-    return None, None
-
 # ---------- APP ----------
 st.title("🚚 LogiSense AI — Analítica Logística Avanzada")
 st.caption("v2.1 • Refactorizado • Auditoría de anomalías • Exportable")
 
 archivo_subido = st.file_uploader("📁 Carga tu archivo de datos (Excel .xlsx o CSV)", type=["xlsx","csv"])
 
-if archivo_subido is not None:
-    archivo_bytes = archivo_subido.getvalue()
-    archivo_nombre = archivo_subido.name
-else:
-    archivo_bytes_default, archivo_nombre_default = obtener_archivo_por_defecto()
-    if archivo_bytes_default is not None:
-        archivo_bytes = archivo_bytes_default
-        archivo_nombre = archivo_nombre_default
-        st.info(f"📂 Se cargó automáticamente {archivo_nombre} desde la carpeta data.")
-    else:
-        st.info("👆 Por favor sube tu archivo Excel o CSV para comenzar el análisis.")
-        st.stop()
+if archivo_subido is None:
+    st.info("👆 Por favor sube tu archivo Excel o CSV para comenzar el análisis.")
+    st.stop()
 
 # Procesamiento con cache
 with st.spinner("⏳ Procesando datos del archivo..."):
-    df_raw, meta = procesar_archivo_cached(archivo_bytes, archivo_nombre)
+    df_raw, meta = procesar_archivo_cached(archivo_subido.getvalue(), archivo_subido.name)
 
 if df_raw.empty:
     st.error(f"❌ No se pudo procesar el archivo: {meta.get('error','Archivo vacío o sin INDICE VIAJES válidos')}")
@@ -401,18 +374,18 @@ with tab1:
 
     # --- MEDIANAS (solicitado) ---
     st.markdown("---")
-    st.markdown(f"### ■ Medianas — Comparativo financiero (FLETE FACTURA por viaje)")
+    st.markdown(f"### \u25a3 Medianas \u2014 Comparativo financiero (FLETE FACTURA por viaje)")
     # KPI Mediana Periodo X vs Periodo Y
     m_med1, m_med2 = st.columns([1,2])
     with m_med1:
-        render_kpi_safe(f"Tarifa Mediana / Viaje ({modo_periodo} {per_a} ➜ {per_b})", f"${mediana_viaje_a:,.2f}", f"${mediana_viaje_b:,.2f}", f"{var_mediana:+.1f}%", False, var_mediana)
+        render_kpi_safe(f"Tarifa Mediana / Viaje ({modo_periodo} {per_a} \u279c {per_b})", f"${mediana_viaje_a:,.2f}", f"${mediana_viaje_b:,.2f}", f"{var_mediana:+.1f}%", False, var_mediana)
         st.caption("Mediana = valor central por viaje (robusta a outliers).")
     with m_med2:
         df_med = pd.DataFrame({"Periodo":[f"{modo_periodo} {per_a}", f"{modo_periodo} {per_b}"], "Mediana":[mediana_viaje_a, mediana_viaje_b], "Media":[media_viaje_a, media_viaje_b]})
         fig_med = go.Figure()
         fig_med.add_trace(go.Bar(x=df_med["Periodo"], y=df_med["Mediana"], name="Mediana", marker_color="#1a73e8", text=[f"${v:,.0f}" for v in df_med["Mediana"]], textposition="outside"))
         fig_med.add_trace(go.Scatter(x=df_med["Periodo"], y=df_med["Media"], mode="markers+lines+text", name="Media", marker=dict(size=10, color="#ea4335"), line=dict(dash="dash", color="#ea4335"), text=[f"${v:,.0f}" for v in df_med["Media"]], textposition="top center"))
-        fig_med.update_layout(title=f"Mediana vs Media — {modo_periodo} {per_a} vs {per_b} (FLETE FACTURA / viaje)", yaxis_title="Monto $", barmode="group", height=340, margin=dict(t=50,b=20), legend=dict(orientation="h", y=1.08))
+        fig_med.update_layout(title=f"Mediana vs Media \u2014 {modo_periodo} {per_a} vs {per_b} (FLETE FACTURA / viaje)", yaxis_title="Monto $", barmode="group", height=340, margin=dict(t=50,b=20), legend=dict(orientation="h", y=1.08))
         st.plotly_chart(fig_med, use_container_width=True)
 
     # Dos cuadritos: Media vs Mediana por periodo con explicacion corta
@@ -425,19 +398,161 @@ with tab1:
     def _txt_exp(dif, pct):
         if dif < 0:
             return "El promedio es más bajo porque hay algunos viajes con importes muy bajos."
-        if dif > 0:
-            return "El promedio es más alto porque algunos viajes tienen costos muy elevados."
-        return "El promedio y la mediana coinciden."
-
+        if abs(pct) < 3:
+            return "El promedio y el valor central son muy parecidos. Los viajes tienen montos similares."
+        else:
+            return "El promedio es más alto porque hay algunos viajes con importes muy altos."
     with c1:
-        st.markdown(f"#### {etiqueta_periodo} {per_a}")
-        st.write(f"Media por viaje: ${media_viaje_a:,.2f}")
-        st.write(f"Mediana por viaje: ${mediana_viaje_a:,.2f}")
-        st.write(f"Diferencia: ${dif_a:,.2f} ({pct_a:+.1f}%)")
-        st.info(_txt_exp(dif_a, pct_a))
+        st.markdown(f"""
+        <div class="kpi-card" style="border-left:4px solid #1a73e8">
+            <p style="font-size:12px;color:#5f6368;margin-bottom:4px;font-weight:700">\u25a3 {etiqueta_periodo} {per_a} \u2014 Media vs Mediana</p>
+            <p style="font-size:14px;margin:4px 0"><b>Media:</b> ${media_viaje_a:,.2f} &nbsp;|&nbsp; <b>Mediana:</b> ${mediana_viaje_a:,.2f}</p>
+            <p style="font-size:12px;margin:4px 0"><span style="background:#e8f0fe;color:#1a73e8;padding:3px 8px;border-radius:10px;font-weight:700">Dif: ${dif_a:+,.2f} ({pct_a:+.1f}%)</span></p>
+            <p style="font-size:11px;color:#3c4043;margin-top:8px;line-height:1.3">{html_lib.escape(_txt_exp(dif_a, pct_a))}</p>
+        </div>
+        """, unsafe_allow_html=True)
     with c2:
-        st.markdown(f"#### {etiqueta_periodo} {per_b}")
-        st.write(f"Media por viaje: ${media_viaje_b:,.2f}")
-        st.write(f"Mediana por viaje: ${mediana_viaje_b:,.2f}")
-        st.write(f"Diferencia: ${dif_b:,.2f} ({pct_b:+.1f}%)")
-        st.info(_txt_exp(dif_b, pct_b))
+        st.markdown(f"""
+        <div class="kpi-card" style="border-left:4px solid #ea4335">
+            <p style="font-size:12px;color:#5f6368;margin-bottom:4px;font-weight:700">\u25a3 {etiqueta_periodo} {per_b} \u2014 Media vs Mediana</p>
+            <p style="font-size:14px;margin:4px 0"><b>Media:</b> ${media_viaje_b:,.2f} &nbsp;|&nbsp; <b>Mediana:</b> ${mediana_viaje_b:,.2f}</p>
+            <p style="font-size:12px;margin:4px 0"><span style="background:#fce8e6;color:#a50e0e;padding:3px 8px;border-radius:10px;font-weight:700">Dif: ${dif_b:+,.2f} ({pct_b:+.1f}%)</span></p>
+            <p style="font-size:11px;color:#3c4043;margin-top:8px;line-height:1.3">{html_lib.escape(_txt_exp(dif_b, pct_b))}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Gráfico tendencia
+    st.markdown("---")
+    st.markdown("### 📈 Tendencia Histórica de Métricas")
+    dict_metricas = {
+        "Facturación (Ventas)": "IMPORTE FACTURADO SIN IVA",
+        "Total Flete (Costo)": "TOTAL FLETE",
+        "Flete Base": "FLETE FACTURA",
+        "Maniobras": "MANIOBRAS",
+        "Repartos": "REPARTOS",
+        "Demoras y Estadías": "DEMORAS Y ESTADIAS",
+        "Otros Gastos": "OTROS",
+        "KG Movidos": "KG MOVIDOS",
+        "Tarimas Totales": "TARIMAS TOTALES POR VIAJE",
+        "Costo por KG": "COSTO_KG",
+        "Costo por Tarima": "COSTO_TARIMA"
+    }
+    metricas_seleccionadas = st.multiselect("Selecciona las métricas para graficar:", list(dict_metricas.keys()), default=["Facturación (Ventas)","Total Flete (Costo)"])
+
+    df_trend = df.copy()
+    # Agrupación robusta
+    cols_agg = {k: 'sum' for k in ['IMPORTE FACTURADO SIN IVA','FLETE FACTURA','MANIOBRAS','REPARTOS','DEMORAS Y ESTADIAS','OTROS','TOTAL FLETE','KG MOVIDOS','TARIMAS TOTALES POR VIAJE'] if k in df_trend.columns}
+    if modo_periodo == "Mes":
+        df_trend['PERIODO_ORDEN'] = pd.Categorical(df_trend['MES FACTURA'], categories=NOMBRES_MESES, ordered=True)
+        df_grouped = df_trend.groupby('PERIODO_ORDEN', observed=True).agg(cols_agg).reset_index().rename(columns={'PERIODO_ORDEN':'Periodo'})
+        df_grouped = df_grouped.sort_values('Periodo')
+    elif modo_periodo == "Semana":
+        df_grouped = df_trend.groupby('SEMANA_ANALISIS', observed=True).agg(cols_agg).reset_index().rename(columns={'SEMANA_ANALISIS':'Periodo'})
+        df_grouped = df_grouped.sort_values('Periodo')
+    else:
+        # Diario: usa fecha real para no perder huecos
+        df_trend = df_trend.dropna(subset=['FECHA_FACTURA_DT'])
+        df_grouped = df_trend.groupby('FECHA_FACTURA_DT', observed=True).agg(cols_agg).reset_index().rename(columns={'FECHA_FACTURA_DT':'Periodo'})
+        df_grouped = df_grouped.sort_values('Periodo')
+        # formatea para eje X
+        df_grouped['Periodo_str'] = df_grouped['Periodo'].dt.strftime('%Y-%m-%d')
+
+    if not df_grouped.empty:
+        df_grouped['COSTO_KG'] = np.where(df_grouped.get('KG MOVIDOS',0)>0, df_grouped.get('FLETE FACTURA',0)/df_grouped['KG MOVIDOS'], 0)
+        df_grouped['COSTO_TARIMA'] = np.where(df_grouped.get('TARIMAS TOTALES POR VIAJE',0)>0, df_grouped.get('FLETE FACTURA',0)/df_grouped['TARIMAS TOTALES POR VIAJE'], 0)
+        if metricas_seleccionadas:
+            cols_y = [dict_metricas[m] for m in metricas_seleccionadas if dict_metricas[m] in df_grouped.columns]
+            x_col = 'Periodo_str' if 'Periodo_str' in df_grouped.columns else 'Periodo'
+            if cols_y:
+                fig_lineas = px.line(df_grouped, x=x_col, y=cols_y, markers=True, title=f"Evolución por {modo_periodo}")
+                fig_lineas.update_layout(hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                st.plotly_chart(fig_lineas, use_container_width=True)
+            else:
+                st.info("Las métricas seleccionadas no tienen datos en el periodo actual.")
+
+    # Desglose gastos
+    st.markdown("---")
+    st.markdown("### 💵 Desglose de Gastos Acumulados")
+    conceptos = ['FLETE FACTURA','MANIOBRAS','REPARTOS','DEMORAS Y ESTADIAS','OTROS','TOTAL FLETE']
+    filas=[]
+    for conc in conceptos:
+        m_a = _suma(conc, df_a); m_b = _suma(conc, df_b)
+        dif = m_b - m_a; pct = ((m_b-m_a)/m_a*100) if m_a!=0 else 0
+        filas.append({'Línea de Gasto':conc, f'{modo_periodo} {per_a}': f"${m_a:,.2f}", f'{modo_periodo} {per_b}': f"${m_b:,.2f}", 'Diferencia ($)': f"${dif:,.2f}", 'Variación (%)': f"{pct:+.1f}%"})
+    df_desglose = pd.DataFrame(filas)
+    st.table(df_desglose)
+    # Export
+    excel_desglose = to_excel_bytes({"Desglose": df_desglose, "KPIs": pd.DataFrame([{"Concepto":"Facturación","A":fact_a,"B":fact_b},{"Concepto":"Viajes","A":viajes_a,"B":viajes_b}])})
+    st.download_button("📥 Descargar desglose (Excel)", data=excel_desglose, file_name=f"LogiSense_Desglose_{modo_periodo}_{per_a}_vs_{per_b}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+with tab2:
+    st.subheader(f"🚨 Auditoría de Anomalías — {modo_periodo} {per_b}")
+    st.caption("Compara los viajes del periodo actual contra la tarifa media del periodo base.")
+
+    df_bv = df_b[df_b['ES_CUENTA_VIAJE']==True].copy()
+    if df_bv.empty:
+        st.info("No hay viajes válidos en el periodo B para auditar.")
+    else:
+        # Agregación por viaje único
+        agg_dict = {}
+        for col, how in [('CLIENTE','first'),('TRANSPORTISTA','first'),('ORIGEN DE VIAJE','first'),('DESTINO DE EMBARQUE','first'),('TARIMAS TOTALES POR VIAJE','sum'),('TIPO DE TRANSPORTE','first'),('KG MOVIDOS','sum'),('IMPORTE FACTURADO SIN IVA','sum'),('FLETE FACTURA','sum'),('MANIOBRAS','sum'),('REPARTOS','sum'),('DEMORAS Y ESTADIAS','sum'),('OTROS','sum'),('TOTAL FLETE','sum')]:
+            if col in df_bv.columns:
+                agg_dict[col]=how
+        df_b_grouped = df_bv.groupby('ID_VIAJE_UNICO').agg(agg_dict).reset_index()
+        df_b_grouped = df_b_grouped.rename(columns={'ORIGEN DE VIAJE':'Origen','DESTINO DE EMBARQUE':'Destino','TARIMAS TOTALES POR VIAJE':'Tarimas','TIPO DE TRANSPORTE':'Unidad','IMPORTE FACTURADO SIN IVA':'Facturación'})
+        df_b_grouped['RUTA'] = df_b_grouped.get('Origen','').astype(str) + " → " + df_b_grouped.get('Destino','').astype(str)
+
+        media_ref = media_viaje_a
+        viajes_altos = df_b_grouped[df_b_grouped['FLETE FACTURA'] > media_ref].copy()
+        viajes_altos['Diferencia vs Media Base'] = viajes_altos['FLETE FACTURA'] - media_ref
+        viajes_altos['% vs Media'] = np.where(media_ref>0, (viajes_altos['FLETE FACTURA']-media_ref)/media_ref*100, 0)
+        df_show = viajes_altos.sort_values('FLETE FACTURA', ascending=False)
+        st.metric("Tarifa media base (referencia)", f"${media_ref:,.2f}", help="Promedio FLETE FACTURA / viaje en Periodo A")
+        st.metric("Viajes por encima de la media", f"{len(df_show)} de {len(df_b_grouped)}", delta=f"{len(df_show)/len(df_b_grouped)*100:.1f}%" if len(df_b_grouped)>0 else None)
+
+        if not df_show.empty:
+            cols_dinero = ['Facturación','FLETE FACTURA','MANIOBRAS','REPARTOS','DEMORAS Y ESTADIAS','OTROS','TOTAL FLETE']
+            df_vis = df_show.copy()
+            for col in cols_dinero + ['Diferencia vs Media Base']:
+                if col in df_vis.columns:
+                    df_vis[col] = df_vis[col].apply(lambda x: f"${x:,.2f}" if pd.notna(x) else "—")
+            if '% vs Media' in df_vis.columns:
+                df_vis['% vs Media'] = df_vis['% vs Media'].apply(lambda x: f"{x:+.1f}%")
+            # Orden columnas
+            cols_orden = [c for c in ['ID_VIAJE_UNICO','RUTA','Origen','Destino','Unidad','Tarimas','KG MOVIDOS','Facturación','FLETE FACTURA','MANIOBRAS','REPARTOS','DEMORAS Y ESTADIAS','OTROS','TOTAL FLETE','Diferencia vs Media Base','% vs Media'] if c in df_vis.columns]
+            st.dataframe(df_vis[cols_orden], use_container_width=True, hide_index=True)
+            # Export
+            excel_audit = to_excel_bytes({"Auditoria": df_show})
+            st.download_button("📥 Descargar auditoría (Excel)", data=excel_audit, file_name=f"LogiSense_Auditoria_{modo_periodo}_{per_b}_MediaBase.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            # Gráfico de dispersión Flete vs KG para outliers
+            fig_sc = px.scatter(df_b_grouped, x='KG MOVIDOS', y='FLETE FACTURA', color='RUTA', hover_data=['ID_VIAJE_UNICO','Unidad'], title="Flete vs KG — Outliers resaltados")
+            # resalta outliers
+            if not df_show.empty:
+                fig_sc.add_trace(go.Scatter(x=df_show['KG MOVIDOS'] if 'KG MOVIDOS' in df_show.columns else df_show['FLETE FACTURA'], y=df_show['FLETE FACTURA'], mode='markers', marker=dict(size=14, line=dict(width=2,color='red'), color='rgba(255,0,0,0.15)'), name='Outlier'))
+            st.plotly_chart(fig_sc, use_container_width=True)
+        else:
+            st.success(f"✅ No se encontraron viajes por encima de la tarifa media base en {modo_periodo} {per_b}.")
+            st.dataframe(df_b_grouped.head(20), use_container_width=True)
+
+with tab3:
+    var_tot = _var_pct(tot_b, tot_a)
+    prompt_texto = f"""Actúa como un Gerente Senior de Logística y Cadena de Suministro.
+Analiza la siguiente variación de fletes, ventas e imprevistos financieros y genera un reporte ejecutivo.
+
+DATOS COMPARATIVOS ({modo_periodo.upper()} {per_a} vs {modo_periodo.upper()} {per_b}):
+- Periodo Base ({modo_periodo} {per_a}): Facturación Venta: ${fact_a:,.2f} | Viajes Reales: {viajes_a} | KG Movidos: {kg_a:,.0f} | Tarimas: {tar_a:,.0f} | Costo Puro/KG: ${costo_kg_a:,.2f} | Costo Puro/Tarima: ${costo_tar_a:,.2f} | Tarifa Media/Viaje: ${media_viaje_a:,.2f} | Gasto Operación Total: ${tot_a:,.2f}
+- Periodo Actual ({modo_periodo} {per_b}): Facturación Venta: ${fact_b:,.2f} | Viajes Reales: {viajes_b} | KG Movidos: {kg_b:,.0f} | Tarimas: {tar_b:,.0f} | Costo Puro/KG: ${costo_kg_b:,.2f} | Costo Puro/Tarima: ${costo_tar_b:,.2f} | Tarifa Media/Viaje: ${media_viaje_b:,.2f} | Gasto Operación Total: ${tot_b:,.2f}
+- Variación en Facturación de Ventas: {var_fact:+.2f}%
+- Variación del Gasto Total de la Operación: {var_tot:+.2f}%
+- Filtros Operativos -> Cliente: {clientes_sel if clientes_sel else 'Todos'} | Transportista: {transp_sel if transp_sel else 'Todos'} | Tipo de Transporte: {tipo_trans_sel if tipo_trans_sel else 'Todos'} | Tipo de Embarque: {embarque_sel if embarque_sel else 'Todos'} | Origen: {origen_sel if origen_sel else 'Todos'} | Destino: {destino_sel if destino_sel else 'Todos'}
+
+ESTRUCTURA DEL REPORTE SOLICITADA:
+1. 📌 Resumen Ejecutivo
+2. 🚨 Alertas Operativas (Relación Ventas vs Costos de Fletes, Desviación en Tarifa Base por Viaje, Costo por KG y Tarimas)
+3. 💡 Recomendaciones para Negociación de Tarifas y Eficiencia en Costos Variables"""
+    st.code(prompt_texto, language="markdown")
+    st.download_button("📋 Descargar prompt (.txt)", data=prompt_texto.encode('utf-8'), file_name=f"LogiSense_Prompt_{modo_periodo}_{per_a}_vs_{per_b}.txt")
+    # Botón copiar visual
+    st.caption("Copia el prompt y pégalo en ChatGPT / Claude / Gemini para generar el reporte ejecutivo.")
+
+st.markdown('<div class="footer-v21">Desarrollado por José Daniel Maldonado Flores — LogiSense AI v2.1</div>', unsafe_allow_html=True)
